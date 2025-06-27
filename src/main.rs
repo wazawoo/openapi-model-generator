@@ -1,13 +1,11 @@
 use openapi_model_generator::{cli::Args, parser, generator, Result, Error};
 use std::fs;
-use openapiv3::OpenAPI;
 use clap::Parser;
 use std::io;
-use std::path::Path;
+use std::path::{PathBuf};
+use openapiv3::OpenAPI;
 
-pub fn validate_input_file<P: AsRef<Path>>(path: P) -> Result<()> {
-    let path = path.as_ref();
-
+pub fn validate_input_file(path: &PathBuf) -> Result<()> {
     println!("Checking input file: {:?}", path);
 
     if !path.exists() {
@@ -30,9 +28,8 @@ pub fn validate_input_file<P: AsRef<Path>>(path: P) -> Result<()> {
 
     Ok(())
 }
-pub fn create_output_dir<P: AsRef<Path>>(path: P) -> Result<()> {
-    let path = path.as_ref();
 
+pub fn create_output_dir(path: &PathBuf) -> Result<()> {
     println!("Checking output directory: {:?}", path);
 
     if path.exists() {
@@ -53,9 +50,7 @@ pub fn create_output_dir<P: AsRef<Path>>(path: P) -> Result<()> {
     }
 }
 
-
-#[tokio::main]
-async fn main() -> Result<()> {
+fn main() -> Result<()> {
     let args = Args::parse();
 
     if let Err(e) = validate_input_file(&args.input) {
@@ -76,9 +71,9 @@ async fn main() -> Result<()> {
         serde_json::from_str(&content)?
     };
 
-    let models = parser::parse_openapi(&openapi)?;
+    let (models, requests, responses) = parser::parse_openapi(&openapi)?;
 
-    let rust_code = generator::generate_rust_code(&models)?;
+    let rust_code = generator::generate_models(&models, &requests, &responses)?;
     let output_models_path = args.output.join("models.rs");
     fs::write(&output_models_path, rust_code)?;
 
