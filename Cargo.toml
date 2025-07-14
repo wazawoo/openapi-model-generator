@@ -2,6 +2,20 @@
 name = "openapi-model-generator"
 version = "0.1.0"
 edition = "2021"
+description = "CLI tool for generating Rust models from OpenAPI v3 specs"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/denislituev/openapi-model-generator"
+readme = "README.md"
+categories = [
+    "command-line-utilities",
+    "development-tools::build-utils",
+    "parsing"
+]
+keywords = ["openapi", "codegen", "rust", "cli"]
+
+[[bin]]
+name = "omg"
+path = "src/main.rs"
 
 [dependencies]
 clap = { version = "4.4", features = ["derive"] }

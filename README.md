@@ -20,7 +20,7 @@ cargo install --path .
 ## Usage
 
 ```bash
-openapi-model-generator -i path/to/openapi.yaml -o ./generated
+omg -i path/to/openapi.yaml -o ./generated
 ```
 
 ### Parameters

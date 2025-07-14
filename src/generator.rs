@@ -10,6 +10,9 @@ const RUST_RESERVED_KEYWORDS: &[&str] = &[
     "typeof", "unsized", "virtual", "yield",
 ];
 
+const EMPTY_RESPONSE_NAME: &str = "UnknownResponse";
+const EMPTY_REQUEST_NAME: &str = "UnknownRequest";
+
 fn is_reserved_word(string_to_check: &str) -> bool {
     RUST_RESERVED_KEYWORDS.contains(&string_to_check)
 }
@@ -99,13 +102,14 @@ fn generate_request_model(request: &RequestModel) -> Result<String> {
     tracing::info!("Generating request model");
     tracing::info!("{:#?}", request);
 
-    if !request.name.is_empty() {
-        output.push_str(&format!("/// {}\n", request.name));
+    if request.name.is_empty() || request.name == EMPTY_REQUEST_NAME {
+       return Ok(String::new());
     }
-    
-    output.push_str(&format!("#[derive(Debug, Serialize)]\n"));
+
+    output.push_str(&format!("/// {}\n", request.name));
+    output.push_str(&"#[derive(Debug, Serialize)]\n".to_string());
     output.push_str(&format!("pub struct {} {{\n", request.name));
-    output.push_str(&format!("    pub content_type: String,\n"));
+    output.push_str(&"    pub content_type: String,\n".to_string());
     output.push_str(&format!("    pub body: {},\n", request.schema));
     output.push_str("}\n");
     Ok(output)
@@ -114,15 +118,16 @@ fn generate_request_model(request: &RequestModel) -> Result<String> {
 fn generate_response_model(response: &ResponseModel) -> Result<String> {
     let mut output = String::new();
     
-    // Add documentation if name is not empty
-    if !response.name.is_empty() {
-        output.push_str(&format!("/// {}\n", response.name));
+    // Return if name is empty
+    if response.name.is_empty() || response.name == EMPTY_RESPONSE_NAME {
+        return Ok(String::new());
     }
-    
-    output.push_str(&format!("#[derive(Debug, Deserialize)]\n"));
+
+    output.push_str(&format!("/// {}\n", response.name));
+    output.push_str(&"#[derive(Debug, Deserialize)]\n".to_string());
     output.push_str(&format!("pub struct {} {{\n", response.name));
-    output.push_str(&format!("    pub status_code: String,\n"));
-    output.push_str(&format!("    pub content_type: String,\n"));
+    output.push_str(&"    pub status_code: String,\n".to_string());
+    output.push_str(&"    pub content_type: String,\n".to_string());
     output.push_str(&format!("    pub body: {},\n", response.schema));
     if let Some(desc) = &response.description {
         output.push_str(&format!("    /// {}\n", desc));
@@ -141,7 +146,7 @@ pub fn generate_rust_code(models: &[Model]) -> Result<String> {
 
     for model in models {
         code.push_str(&format!("/// {}\n", model.name));
-        code.push_str(&format!("#[derive(Debug, Serialize, Deserialize)]\n"));
+        code.push_str(&"#[derive(Debug, Serialize, Deserialize)]\n".to_string());
         code.push_str(&format!("pub struct {} {{\n", model.name));
 
         for field in &model.fields {
