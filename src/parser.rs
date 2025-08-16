@@ -1,7 +1,14 @@
-use crate::{models::{Model, Field, RequestModel, ResponseModel}, Result};
-use openapiv3::{OpenAPI, Schema, ReferenceOr, SchemaKind, Type, VariantOrUnknownOrEmpty, StringFormat};
+use crate::{
+    models::{Field, Model, RequestModel, ResponseModel},
+    Result,
+};
+use openapiv3::{
+    OpenAPI, ReferenceOr, Schema, SchemaKind, StringFormat, Type, VariantOrUnknownOrEmpty,
+};
 
-pub fn parse_openapi(openapi: &OpenAPI) -> Result<(Vec<Model>, Vec<RequestModel>, Vec<ResponseModel>)> {
+pub fn parse_openapi(
+    openapi: &OpenAPI,
+) -> Result<(Vec<Model>, Vec<RequestModel>, Vec<ResponseModel>)> {
     let mut models = Vec::new();
     let mut requests = Vec::new();
     let mut responses = Vec::new();
@@ -48,18 +55,19 @@ fn process_operation(
     responses: &mut Vec<ResponseModel>,
 ) -> Result<()> {
     // Parse request body
-    if let Some(request_body_ref) = &operation.request_body {
-        if let ReferenceOr::Item(request_body) = request_body_ref {
-            for (content_type, media_type) in &request_body.content {
-                if let Some(schema) = &media_type.schema {
-                    let request = RequestModel {
-                        name: format!("{}Request", operation.operation_id.as_deref().unwrap_or("Unknown")),
-                        content_type: content_type.clone(),
-                        schema: extract_type(schema)?,
-                        is_required: request_body.required,
-                    };
-                    requests.push(request);
-                }
+    if let Some(ReferenceOr::Item(request_body)) = &operation.request_body {
+        for (content_type, media_type) in &request_body.content {
+            if let Some(schema) = &media_type.schema {
+                let request = RequestModel {
+                    name: format!(
+                        "{}Request",
+                        operation.operation_id.as_deref().unwrap_or("Unknown")
+                    ),
+                    content_type: content_type.clone(),
+                    schema: extract_type_and_format(schema)?.0,
+                    is_required: request_body.required,
+                };
+                requests.push(request);
             }
         }
     }
@@ -70,10 +78,13 @@ fn process_operation(
             for (content_type, media_type) in &response.content {
                 if let Some(schema) = &media_type.schema {
                     let response = ResponseModel {
-                        name: format!("{}Response", operation.operation_id.as_deref().unwrap_or("Unknown")),
+                        name: format!(
+                            "{}Response",
+                            operation.operation_id.as_deref().unwrap_or("Unknown")
+                        ),
                         status_code: status.to_string(),
                         content_type: content_type.clone(),
-                        schema: extract_type(schema)?,
+                        schema: extract_type_and_format(schema)?.0,
                         description: Some(response.description.clone()),
                     };
                     responses.push(response);
@@ -92,18 +103,22 @@ fn parse_schema(name: &str, schema: &ReferenceOr<Schema>) -> Result<Option<Model
             if let SchemaKind::Type(Type::Object(obj)) = &schema.schema_kind {
                 let mut fields = Vec::new();
                 for (field_name, field_schema) in &obj.properties {
-                    let field_type = match field_schema {
+                    let (field_type, format) = match field_schema {
                         ReferenceOr::Item(boxed_schema) => {
-                            extract_type(&ReferenceOr::Item((**boxed_schema).clone()))?
-                        },
+                            extract_type_and_format(&ReferenceOr::Item((**boxed_schema).clone()))?
+                        }
                         ReferenceOr::Reference { reference } => {
-                            extract_type(&ReferenceOr::Reference { reference: reference.clone() })?
+                            extract_type_and_format(&ReferenceOr::Reference {
+                                reference: reference.clone(),
+                            })?
                         }
                     };
+
                     let is_required = obj.required.contains(field_name);
                     fields.push(Field {
                         name: field_name.clone(),
                         field_type,
+                        format,
                         is_required,
                     });
                 }
@@ -118,48 +133,59 @@ fn parse_schema(name: &str, schema: &ReferenceOr<Schema>) -> Result<Option<Model
     }
 }
 
-fn extract_type(schema: &ReferenceOr<Schema>) -> Result<String> {
+fn extract_type_and_format(schema: &ReferenceOr<Schema>) -> Result<(String, String)> {
     match schema {
         ReferenceOr::Reference { reference } => {
-            let type_name = reference.split('/').last().unwrap_or("Unknown");
-            Ok(type_name.to_string())
+            let type_name = reference.split('/').next_back().unwrap_or("Unknown");
+            Ok((type_name.to_string(), "reference".to_string()))
         }
-        ReferenceOr::Item(schema) => {
-            match &schema.schema_kind {
-                SchemaKind::Type(Type::String(string_type)) => {
-                    match &string_type.format {
-                        VariantOrUnknownOrEmpty::Item(fmt) => match fmt {
-                            StringFormat::DateTime => Ok("DateTime<Utc>".to_string()),
-                            StringFormat::Date => Ok("NaiveDate".to_string()),
-                            _ => Ok("String".to_string()),
-                        },
-                        _ => Ok("String".to_string()),
+        ReferenceOr::Item(schema) => match &schema.schema_kind {
+            SchemaKind::Type(Type::String(string_type)) => match &string_type.format {
+                VariantOrUnknownOrEmpty::Item(fmt) => match fmt {
+                    StringFormat::DateTime => {
+                        Ok(("DateTime<Utc>".to_string(), "date-time".to_string()))
                     }
-                }
-                SchemaKind::Type(Type::Integer(_)) => Ok("i64".to_string()),
-                SchemaKind::Type(Type::Number(_)) => Ok("f64".to_string()),
-                SchemaKind::Type(Type::Boolean {}) => Ok("bool".to_string()),
-                SchemaKind::Type(Type::Array(arr)) => {
-                    if let Some(items) = &arr.items {
-                        let items_ref: &ReferenceOr<Box<Schema>> = &*items;
-                        let inner_type = match items_ref {
-                            ReferenceOr::Item(boxed_schema) => extract_type(&ReferenceOr::Item((**boxed_schema).clone()))?,
-                            ReferenceOr::Reference { reference } => extract_type(&ReferenceOr::Reference { reference: reference.clone() })?,
-                        };
-                        Ok(format!("Vec<{}>", inner_type))
+                    StringFormat::Date => Ok(("NaiveDate".to_string(), "date".to_string())),
+                    _ => Ok(("String".to_string(), format!("{fmt:?}"))),
+                },
+                VariantOrUnknownOrEmpty::Unknown(unknown_format) => {
+                    if unknown_format.to_lowercase() == "uuid" {
+                        Ok(("Uuid".to_string(), "uuid".to_string()))
                     } else {
-                        Ok("Vec<serde_json::Value>".to_string())
+                        Ok(("String".to_string(), unknown_format.clone()))
                     }
                 }
-                SchemaKind::Type(Type::Object(obj)) => {
-                    if obj.properties.is_empty() {
-                        Ok("()".to_string())
-                    } else {
-                        Ok("serde_json::Value".to_string())
-                    }
+                _ => Ok(("String".to_string(), "string".to_string())),
+            },
+            SchemaKind::Type(Type::Integer(_)) => Ok(("i64".to_string(), "integer".to_string())),
+            SchemaKind::Type(Type::Number(_)) => Ok(("f64".to_string(), "number".to_string())),
+            SchemaKind::Type(Type::Boolean {}) => Ok(("bool".to_string(), "boolean".to_string())),
+            SchemaKind::Type(Type::Array(arr)) => {
+                if let Some(items) = &arr.items {
+                    let items_ref: &ReferenceOr<Box<Schema>> = items;
+                    let (inner_type, _) = match items_ref {
+                        ReferenceOr::Item(boxed_schema) => {
+                            extract_type_and_format(&ReferenceOr::Item((**boxed_schema).clone()))?
+                        }
+                        ReferenceOr::Reference { reference } => {
+                            extract_type_and_format(&ReferenceOr::Reference {
+                                reference: reference.clone(),
+                            })?
+                        }
+                    };
+                    Ok((format!("Vec<{inner_type}>"), "array".to_string()))
+                } else {
+                    Ok(("Vec<serde_json::Value>".to_string(), "array".to_string()))
                 }
-                _ => Ok("serde_json::Value".to_string()),
             }
-        }
+            SchemaKind::Type(Type::Object(obj)) => {
+                if obj.properties.is_empty() {
+                    Ok(("()".to_string(), "object".to_string()))
+                } else {
+                    Ok(("serde_json::Value".to_string(), "object".to_string()))
+                }
+            }
+            _ => Ok(("serde_json::Value".to_string(), "unknown".to_string())),
+        },
     }
-} 
+}

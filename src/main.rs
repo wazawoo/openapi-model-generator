@@ -1,24 +1,24 @@
-use openapi_model_generator::{cli::Args, parser, generator, Result, Error};
-use std::fs;
 use clap::Parser;
-use std::io;
-use std::path::{PathBuf};
+use openapi_model_generator::{cli::Args, generator, parser, Error, Result};
 use openapiv3::OpenAPI;
+use std::fs;
+use std::io;
+use std::path::PathBuf;
 
 pub fn validate_input_file(path: &PathBuf) -> Result<()> {
-    println!("Checking input file: {:?}", path);
+    println!("Checking input file: {path:?}");
 
     if !path.exists() {
         return Err(Error::from(io::Error::new(
             io::ErrorKind::NotFound,
-            format!("Input path {:?} does not exist", path),
+            format!("Input path {path:?} does not exist"),
         )));
     }
 
     if !path.is_file() {
         return Err(Error::from(io::Error::new(
             io::ErrorKind::InvalidInput,
-            format!("Input path {:?} is not a file", path),
+            format!("Input path {path:?} is not a file"),
         )));
     }
 
@@ -30,7 +30,7 @@ pub fn validate_input_file(path: &PathBuf) -> Result<()> {
 }
 
 pub fn create_output_dir(path: &PathBuf) -> Result<()> {
-    println!("Checking output directory: {:?}", path);
+    println!("Checking output directory: {path:?}");
 
     if path.exists() {
         if path.is_dir() {
@@ -39,11 +39,11 @@ pub fn create_output_dir(path: &PathBuf) -> Result<()> {
         } else {
             Err(Error::from(io::Error::new(
                 io::ErrorKind::AlreadyExists,
-                format!("Path {:?} exists but is not a directory", path),
+                format!("Path {path:?} exists but is not a directory"),
             )))
         }
     } else {
-        println!("Creating directory: {:?}", path);
+        println!("Creating directory: {path:?}");
         fs::create_dir_all(path)?;
         println!("Directory created.");
         Ok(())
@@ -54,18 +54,18 @@ fn main() -> Result<()> {
     let args = Args::parse();
 
     if let Err(e) = validate_input_file(&args.input) {
-        eprintln!("Failed to validate input file: {}", e);
+        eprintln!("Failed to validate input file: {e}");
         std::process::exit(1);
     }
 
     if let Err(e) = create_output_dir(&args.output) {
-        eprintln!("Failed to create output directory: {}", e);
+        eprintln!("Failed to create output directory: {e}");
         std::process::exit(1);
     }
-    
+
     let content = fs::read_to_string(&args.input)?;
 
-    let openapi: OpenAPI = if args.input.extension().map_or(false, |ext| ext == "yaml") {
+    let openapi: OpenAPI = if args.input.extension().is_some_and(|ext| ext == "yaml") {
         serde_yaml::from_str(&content)?
     } else {
         serde_json::from_str(&content)?
@@ -81,7 +81,7 @@ fn main() -> Result<()> {
     let output_lib_path = args.output.join("mod.rs");
     fs::write(&output_lib_path, rust_lib)?;
 
-    println!("Models generated successfully to {:?}", output_models_path);
+    println!("Models generated successfully to {output_models_path:?}");
 
     Ok(())
 }

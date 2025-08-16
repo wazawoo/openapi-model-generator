@@ -1,12 +1,13 @@
-use crate::{models::{Model, RequestModel, ResponseModel}, Result};
+use crate::{
+    models::{Model, RequestModel, ResponseModel},
+    Result,
+};
 
 const RUST_RESERVED_KEYWORDS: &[&str] = &[
-    "as", "break", "const", "continue", "crate", "else", "enum", "extern", "false", "fn",
-    "for", "if", "impl", "in", "let", "loop", "match", "mod", "move", "mut", "pub", "ref",
-    "return", "self", "Self", "static", "struct", "super", "trait", "true", "type", "unsafe",
-    "use", "where", "while",
-
-    "abstract", "become", "box", "do", "final", "macro", "override", "priv", "try",
+    "as", "break", "const", "continue", "crate", "else", "enum", "extern", "false", "fn", "for",
+    "if", "impl", "in", "let", "loop", "match", "mod", "move", "mut", "pub", "ref", "return",
+    "self", "Self", "static", "struct", "super", "trait", "true", "type", "unsafe", "use", "where",
+    "while", "abstract", "become", "box", "do", "final", "macro", "override", "priv", "try",
     "typeof", "unsized", "virtual", "yield",
 ];
 
@@ -52,8 +53,8 @@ fn generate_model(model: &Model) -> Result<String> {
     if !model.name.is_empty() {
         output.push_str(&format!("/// {}\n", model.name));
     }
-    
-    output.push_str(&format!("#[derive(Debug, Serialize, Deserialize)]\n"));
+
+    output.push_str("#[derive(Debug, Serialize, Deserialize)]\n");
     output.push_str(&format!("pub struct {} {{\n", model.name));
 
     for field in &model.fields {
@@ -70,7 +71,7 @@ fn generate_model(model: &Model) -> Result<String> {
 
         let mut lowercased_name = field.name.to_lowercase();
         if is_reserved_word(&lowercased_name) {
-            lowercased_name = format!("r#{}", lowercased_name)
+            lowercased_name = format!("r#{lowercased_name}")
         }
 
         output.push_str(&format!(
@@ -79,16 +80,10 @@ fn generate_model(model: &Model) -> Result<String> {
         ));
 
         if field.is_required {
-            output.push_str(&format!(
-                "    pub {}: {},\n",
-                lowercased_name,
-                field_type
-            ));
+            output.push_str(&format!("    pub {lowercased_name}: {field_type},\n",));
         } else {
             output.push_str(&format!(
-                "    pub {}: Option<{}>,\n",
-                lowercased_name,
-                field_type
+                "    pub {lowercased_name}: Option<{field_type}>,\n",
             ));
         }
     }
@@ -103,13 +98,13 @@ fn generate_request_model(request: &RequestModel) -> Result<String> {
     tracing::info!("{:#?}", request);
 
     if request.name.is_empty() || request.name == EMPTY_REQUEST_NAME {
-       return Ok(String::new());
+        return Ok(String::new());
     }
 
     output.push_str(&format!("/// {}\n", request.name));
-    output.push_str(&"#[derive(Debug, Serialize)]\n".to_string());
+    output.push_str("#[derive(Debug, Serialize)]\n");
     output.push_str(&format!("pub struct {} {{\n", request.name));
-    output.push_str(&"    pub content_type: String,\n".to_string());
+    output.push_str("    pub content_type: String,\n");
     output.push_str(&format!("    pub body: {},\n", request.schema));
     output.push_str("}\n");
     Ok(output)
@@ -117,25 +112,24 @@ fn generate_request_model(request: &RequestModel) -> Result<String> {
 
 fn generate_response_model(response: &ResponseModel) -> Result<String> {
     let mut output = String::new();
-    
+
     // Return if name is empty
     if response.name.is_empty() || response.name == EMPTY_RESPONSE_NAME {
         return Ok(String::new());
     }
 
     output.push_str(&format!("/// {}\n", response.name));
-    output.push_str(&"#[derive(Debug, Deserialize)]\n".to_string());
+    output.push_str("#[derive(Debug, Deserialize)]\n");
     output.push_str(&format!("pub struct {} {{\n", response.name));
-    output.push_str(&"    pub status_code: String,\n".to_string());
-    output.push_str(&"    pub content_type: String,\n".to_string());
+    output.push_str("    pub status_code: String,\n");
+    output.push_str("    pub content_type: String,\n");
     output.push_str(&format!("    pub body: {},\n", response.schema));
     if let Some(desc) = &response.description {
-        output.push_str(&format!("    /// {}\n", desc));
+        output.push_str(&format!("    /// {desc}\n"));
     }
     output.push_str("}\n");
     Ok(output)
 }
-
 
 pub fn generate_rust_code(models: &[Model]) -> Result<String> {
     let mut code = String::new();
@@ -146,7 +140,7 @@ pub fn generate_rust_code(models: &[Model]) -> Result<String> {
 
     for model in models {
         code.push_str(&format!("/// {}\n", model.name));
-        code.push_str(&"#[derive(Debug, Serialize, Deserialize)]\n".to_string());
+        code.push_str("#[derive(Debug, Serialize, Deserialize)]\n");
         code.push_str(&format!("pub struct {} {{\n", model.name));
 
         for field in &model.fields {
@@ -163,25 +157,19 @@ pub fn generate_rust_code(models: &[Model]) -> Result<String> {
 
             let mut lowercased_name = field.name.to_lowercase();
             if is_reserved_word(&lowercased_name) {
-                lowercased_name = format!("r#{}", lowercased_name)
+                lowercased_name = format!("r#{lowercased_name}")
             }
 
             code.push_str(&format!(
                 "    #[serde(rename = \"{}\")]\n",
                 field.name.to_lowercase()
             ));
-            
+
             if field.is_required {
-                code.push_str(&format!(
-                    "    pub {}: {},\n",
-                    lowercased_name,
-                    field_type
-                ));
+                code.push_str(&format!("    pub {lowercased_name}: {field_type},\n",));
             } else {
                 code.push_str(&format!(
-                    "    pub {}: Option<{}>,\n",
-                    lowercased_name,
-                    field_type
+                    "    pub {lowercased_name}: Option<{field_type}>,\n",
                 ));
             }
         }

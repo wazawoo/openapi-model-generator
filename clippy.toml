@@ -1,0 +1,26 @@
+# Clippy configuration file
+# More info: https://doc.rust-lang.org/clippy/configuration.html
+
+# Maximum allowed cognitive complexity for a function
+cognitive-complexity-threshold = 25
+
+# Maximum allowed lines for a function
+too-many-lines-threshold = 100
+
+# Maximum allowed arguments for a function
+too-many-arguments-threshold = 7
+
+# Lint level for doc-markdown
+doc-valid-idents = [
+    "OpenAPI",
+    "UUID", 
+    "JSON",
+    "HTTP",
+    "CLI",
+    "API",
+    "URL",
+    "YAML",
+]
+
+# Avoid false positives for these prefixes
+avoid-breaking-exported-api = true

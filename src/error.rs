@@ -16,4 +16,4 @@ pub enum Error {
 
     #[error("Code generation error: {0}")]
     Generation(String),
-} 
+}

@@ -9,4 +9,4 @@ pub struct Args {
 
     #[arg(short, long, default_value = "./generated")]
     pub output: PathBuf,
-} 
+}
