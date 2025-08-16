@@ -1,4 +1,4 @@
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Model {
@@ -10,6 +10,7 @@ pub struct Model {
 pub struct Field {
     pub name: String,
     pub field_type: String,
+    pub format: String,
     pub is_required: bool,
 }
 

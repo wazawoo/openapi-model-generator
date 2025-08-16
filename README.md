@@ -1,5 +1,8 @@
 # OpenAPI Model Generator
 
+[![CI](https://github.com/denislituev/openapi-model-generator/workflows/CI/badge.svg)](https://github.com/denislituev/openapi-model-generator/actions/workflows/ci.yml)
+[![PR Check](https://github.com/denislituev/openapi-model-generator/workflows/PR%20Check/badge.svg)](https://github.com/denislituev/openapi-model-generator/actions/workflows/pr-check.yml)
+
 A tool for generating Rust models from OpenAPI specifications. This utility automatically creates Rust structures based on schemas from OpenAPI (Swagger) documentation.
 
 ## Features
@@ -93,6 +96,38 @@ cargo build
 ```bash
 cargo test
 ```
+
+### Code Quality
+
+This project uses GitHub Actions for continuous integration with the following checks:
+
+- **Code formatting**: `cargo fmt --all -- --check`
+- **Linting**: `cargo clippy --all-targets --all-features -- -D warnings`
+- **Compilation**: `cargo check --all-targets --all-features`
+- **Security audit**: `cargo audit`
+- **Build verification**: `cargo build --release`
+
+#### Local Development
+
+Before submitting a PR, run these commands locally:
+
+```bash
+# Format code
+cargo fmt --all
+
+# Run linter
+cargo clippy --all-targets --all-features -- -D warnings
+
+# Check compilation
+cargo check --all-targets --all-features
+
+# Run tests
+cargo test --all-features
+```
+
+#### Clippy Configuration
+
+Linting rules are configured in `clippy.toml`. The CI enforces zero warnings policy.
 
 ## License
 
