@@ -1,6 +1,6 @@
 [package]
 name = "openapi-model-generator"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 description = "CLI tool for generating Rust models from OpenAPI v3 specs"
 license = "MIT OR Apache-2.0"
@@ -26,3 +26,4 @@ thiserror = "1.0"
 serde_yaml = "0.9"
 tracing = "0.1.41"
 uuid = { version = "1.0", features = ["serde", "v4"] }
+indexmap = "1.9"

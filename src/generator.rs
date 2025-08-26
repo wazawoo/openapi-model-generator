@@ -1,5 +1,7 @@
 use crate::{
-    models::{Model, RequestModel, ResponseModel},
+    models::{
+        CompositionModel, Model, ModelType, RequestModel, ResponseModel, UnionModel, UnionType,
+    },
     Result,
 };
 
@@ -19,7 +21,7 @@ fn is_reserved_word(string_to_check: &str) -> bool {
 }
 
 pub fn generate_models(
-    models: &[Model],
+    models: &[ModelType],
     requests: &[RequestModel],
     responses: &[ResponseModel],
 ) -> Result<String> {
@@ -29,9 +31,21 @@ pub fn generate_models(
     output.push_str("use uuid::Uuid;\n");
     output.push_str("use chrono::{DateTime, NaiveDate, Utc};\n\n");
 
-    for model in models {
-        output.push_str(&generate_model(model)?);
-        output.push('\n');
+    for model_type in models {
+        match model_type {
+            ModelType::Struct(model) => {
+                output.push_str(&generate_model(model)?);
+                output.push('\n');
+            }
+            ModelType::Union(union) => {
+                output.push_str(&generate_union(union)?);
+                output.push('\n');
+            }
+            ModelType::Composition(comp) => {
+                output.push_str(&generate_composition(comp)?);
+                output.push('\n');
+            }
+        }
     }
 
     for request in requests {
@@ -127,6 +141,104 @@ fn generate_response_model(response: &ResponseModel) -> Result<String> {
     if let Some(desc) = &response.description {
         output.push_str(&format!("    /// {desc}\n"));
     }
+    output.push_str("}\n");
+    Ok(output)
+}
+
+fn generate_union(union: &UnionModel) -> Result<String> {
+    let mut output = String::new();
+
+    output.push_str(&format!(
+        "/// {} ({})\n",
+        union.name,
+        match union.union_type {
+            UnionType::OneOf => "oneOf",
+            UnionType::AnyOf => "anyOf",
+        }
+    ));
+    output.push_str("#[derive(Debug, Serialize, Deserialize)]\n");
+    output.push_str("#[serde(tag = \"type\")]\n");
+    output.push_str(&format!("pub enum {} {{\n", union.name));
+
+    for variant in &union.variants {
+        output.push_str(&format!("    {} {{\n", variant.name));
+
+        for field in &variant.fields {
+            let field_type = match field.field_type.as_str() {
+                "String" => "String",
+                "f64" => "f64",
+                "i64" => "i64",
+                "bool" => "bool",
+                "DateTime" => "DateTime<Utc>",
+                "Date" => "NaiveDate",
+                "Uuid" => "Uuid",
+                _ => &field.field_type,
+            };
+
+            let mut lowercased_name = field.name.to_lowercase();
+            if is_reserved_word(&lowercased_name) {
+                lowercased_name = format!("r#{lowercased_name}");
+            }
+
+            output.push_str(&format!(
+                "        #[serde(rename = \"{}\")]\n",
+                field.name.to_lowercase()
+            ));
+
+            if field.is_required {
+                output.push_str(&format!("        {lowercased_name}: {field_type},\n"));
+            } else {
+                output.push_str(&format!(
+                    "        {lowercased_name}: Option<{field_type}>,\n"
+                ));
+            }
+        }
+
+        output.push_str("    },\n");
+    }
+
+    output.push_str("}\n");
+    Ok(output)
+}
+
+fn generate_composition(comp: &CompositionModel) -> Result<String> {
+    let mut output = String::new();
+
+    output.push_str(&format!("/// {} (allOf composition)\n", comp.name));
+    output.push_str("#[derive(Debug, Serialize, Deserialize)]\n");
+    output.push_str(&format!("pub struct {} {{\n", comp.name));
+
+    for field in &comp.all_fields {
+        let field_type = match field.field_type.as_str() {
+            "String" => "String",
+            "f64" => "f64",
+            "i64" => "i64",
+            "bool" => "bool",
+            "DateTime" => "DateTime<Utc>",
+            "Date" => "NaiveDate",
+            "Uuid" => "Uuid",
+            _ => &field.field_type,
+        };
+
+        let mut lowercased_name = field.name.to_lowercase();
+        if is_reserved_word(&lowercased_name) {
+            lowercased_name = format!("r#{lowercased_name}");
+        }
+
+        output.push_str(&format!(
+            "    #[serde(rename = \"{}\")]\n",
+            field.name.to_lowercase()
+        ));
+
+        if field.is_required {
+            output.push_str(&format!("    pub {lowercased_name}: {field_type},\n"));
+        } else {
+            output.push_str(&format!(
+                "    pub {lowercased_name}: Option<{field_type}>,\n"
+            ));
+        }
+    }
+
     output.push_str("}\n");
     Ok(output)
 }

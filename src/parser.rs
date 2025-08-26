@@ -1,14 +1,40 @@
 use crate::{
-    models::{Field, Model, RequestModel, ResponseModel},
+    models::{
+        CompositionModel, Field, Model, ModelType, RequestModel, ResponseModel, UnionModel,
+        UnionType, UnionVariant,
+    },
     Result,
 };
+use indexmap::IndexMap;
 use openapiv3::{
     OpenAPI, ReferenceOr, Schema, SchemaKind, StringFormat, Type, VariantOrUnknownOrEmpty,
 };
 
+/// Converts camelCase to PascalCase
+/// Example: "createRole" -> "CreateRole", "listRoles" -> "ListRoles"
+fn to_pascal_case(input: &str) -> String {
+    if input.is_empty() {
+        return input.to_string();
+    }
+    
+    let mut result = String::new();
+    let mut capitalize_next = true;
+    
+    for ch in input.chars() {
+        if capitalize_next {
+            result.push(ch.to_ascii_uppercase());
+            capitalize_next = false;
+        } else {
+            result.push(ch);
+        }
+    }
+    
+    result
+}
+
 pub fn parse_openapi(
     openapi: &OpenAPI,
-) -> Result<(Vec<Model>, Vec<RequestModel>, Vec<ResponseModel>)> {
+) -> Result<(Vec<ModelType>, Vec<RequestModel>, Vec<ResponseModel>)> {
     let mut models = Vec::new();
     let mut requests = Vec::new();
     let mut responses = Vec::new();
@@ -16,8 +42,9 @@ pub fn parse_openapi(
     // Parse components/schemas
     if let Some(components) = &openapi.components {
         for (name, schema) in &components.schemas {
-            if let Some(model) = parse_schema(name, schema)? {
-                models.push(model);
+            if let Some(model_type) = parse_schema_to_model_type(name, schema, &components.schemas)?
+            {
+                models.push(model_type);
             }
         }
     }
@@ -61,7 +88,7 @@ fn process_operation(
                 let request = RequestModel {
                     name: format!(
                         "{}Request",
-                        operation.operation_id.as_deref().unwrap_or("Unknown")
+                        to_pascal_case(operation.operation_id.as_deref().unwrap_or("Unknown"))
                     ),
                     content_type: content_type.clone(),
                     schema: extract_type_and_format(schema)?.0,
@@ -80,7 +107,7 @@ fn process_operation(
                     let response = ResponseModel {
                         name: format!(
                             "{}Response",
-                            operation.operation_id.as_deref().unwrap_or("Unknown")
+                            to_pascal_case(operation.operation_id.as_deref().unwrap_or("Unknown"))
                         ),
                         status_code: status.to_string(),
                         content_type: content_type.clone(),
@@ -96,38 +123,74 @@ fn process_operation(
     Ok(())
 }
 
-fn parse_schema(name: &str, schema: &ReferenceOr<Schema>) -> Result<Option<Model>> {
+fn parse_schema_to_model_type(
+    name: &str,
+    schema: &ReferenceOr<Schema>,
+    all_schemas: &IndexMap<String, ReferenceOr<Schema>>,
+) -> Result<Option<ModelType>> {
     match schema {
         ReferenceOr::Reference { .. } => Ok(None),
         ReferenceOr::Item(schema) => {
-            if let SchemaKind::Type(Type::Object(obj)) = &schema.schema_kind {
-                let mut fields = Vec::new();
-                for (field_name, field_schema) in &obj.properties {
-                    let (field_type, format) = match field_schema {
-                        ReferenceOr::Item(boxed_schema) => {
-                            extract_type_and_format(&ReferenceOr::Item((**boxed_schema).clone()))?
-                        }
-                        ReferenceOr::Reference { reference } => {
-                            extract_type_and_format(&ReferenceOr::Reference {
-                                reference: reference.clone(),
-                            })?
-                        }
-                    };
+            match &schema.schema_kind {
+                // regular objects
+                SchemaKind::Type(Type::Object(obj)) => {
+                    let mut fields = Vec::new();
+                    for (field_name, field_schema) in &obj.properties {
+                        let (field_type, format) = match field_schema {
+                            ReferenceOr::Item(boxed_schema) => extract_type_and_format(
+                                &ReferenceOr::Item((**boxed_schema).clone()),
+                            )?,
+                            ReferenceOr::Reference { reference } => {
+                                extract_type_and_format(&ReferenceOr::Reference {
+                                    reference: reference.clone(),
+                                })?
+                            }
+                        };
 
-                    let is_required = obj.required.contains(field_name);
-                    fields.push(Field {
-                        name: field_name.clone(),
-                        field_type,
-                        format,
-                        is_required,
-                    });
+                        let is_required = obj.required.contains(field_name);
+                        fields.push(Field {
+                            name: field_name.clone(),
+                            field_type,
+                            format,
+                            is_required,
+                        });
+                    }
+                    Ok(Some(ModelType::Struct(Model {
+                        name: name.to_string(),
+                        fields,
+                    })))
                 }
-                Ok(Some(Model {
-                    name: name.to_string(),
-                    fields,
-                }))
-            } else {
-                Ok(None)
+
+                // allOf
+                SchemaKind::AllOf { all_of } => {
+                    let all_fields = resolve_all_of_fields(name, all_of, all_schemas)?;
+                    Ok(Some(ModelType::Composition(CompositionModel {
+                        name: name.to_string(),
+                        all_fields,
+                    })))
+                }
+
+                // oneOf
+                SchemaKind::OneOf { one_of } => {
+                    let variants = resolve_union_variants(one_of, all_schemas)?;
+                    Ok(Some(ModelType::Union(UnionModel {
+                        name: name.to_string(),
+                        variants,
+                        union_type: UnionType::OneOf,
+                    })))
+                }
+
+                // anyOf
+                SchemaKind::AnyOf { any_of } => {
+                    let variants = resolve_union_variants(any_of, all_schemas)?;
+                    Ok(Some(ModelType::Union(UnionModel {
+                        name: name.to_string(),
+                        variants,
+                        union_type: UnionType::AnyOf,
+                    })))
+                }
+
+                _ => Ok(None),
             }
         }
     }
@@ -187,5 +250,103 @@ fn extract_type_and_format(schema: &ReferenceOr<Schema>) -> Result<(String, Stri
             }
             _ => Ok(("serde_json::Value".to_string(), "unknown".to_string())),
         },
+    }
+}
+
+fn resolve_all_of_fields(
+    _name: &str,
+    all_of: &[ReferenceOr<Schema>],
+    all_schemas: &IndexMap<String, ReferenceOr<Schema>>,
+) -> Result<Vec<Field>> {
+    let mut all_fields = Vec::new();
+
+    for schema_ref in all_of {
+        match schema_ref {
+            ReferenceOr::Reference { reference } => {
+                if let Some(schema_name) = reference.strip_prefix("#/components/schemas/") {
+                    if let Some(referenced_schema) = all_schemas.get(schema_name) {
+                        let fields = extract_fields_from_schema(referenced_schema, all_schemas)?;
+                        all_fields.extend(fields);
+                    }
+                }
+            }
+            ReferenceOr::Item(_schema) => {
+                let fields = extract_fields_from_schema(schema_ref, all_schemas)?;
+                all_fields.extend(fields);
+            }
+        }
+    }
+
+    Ok(all_fields)
+}
+
+fn resolve_union_variants(
+    schemas: &[ReferenceOr<Schema>],
+    all_schemas: &IndexMap<String, ReferenceOr<Schema>>,
+) -> Result<Vec<UnionVariant>> {
+    let mut variants = Vec::new();
+
+    for (index, schema_ref) in schemas.iter().enumerate() {
+        match schema_ref {
+            ReferenceOr::Reference { reference } => {
+                if let Some(schema_name) = reference.strip_prefix("#/components/schemas/") {
+                    if let Some(referenced_schema) = all_schemas.get(schema_name) {
+                        let fields = extract_fields_from_schema(referenced_schema, all_schemas)?;
+                        variants.push(UnionVariant {
+                            name: schema_name.to_string(),
+                            fields,
+                        });
+                    }
+                }
+            }
+            ReferenceOr::Item(_schema) => {
+                let fields = extract_fields_from_schema(schema_ref, all_schemas)?;
+                let variant_name = format!("Variant{index}");
+                variants.push(UnionVariant {
+                    name: variant_name,
+                    fields,
+                });
+            }
+        }
+    }
+
+    Ok(variants)
+}
+
+fn extract_fields_from_schema(
+    schema_ref: &ReferenceOr<Schema>,
+    _all_schemas: &IndexMap<String, ReferenceOr<Schema>>,
+) -> Result<Vec<Field>> {
+    let mut fields = Vec::new();
+
+    match schema_ref {
+        ReferenceOr::Reference { .. } => {
+            Ok(fields)
+        }
+        ReferenceOr::Item(schema) => {
+            if let SchemaKind::Type(Type::Object(obj)) = &schema.schema_kind {
+                for (field_name, field_schema) in &obj.properties {
+                    let (field_type, format) = match field_schema {
+                        ReferenceOr::Item(boxed_schema) => {
+                            extract_type_and_format(&ReferenceOr::Item((**boxed_schema).clone()))?
+                        }
+                        ReferenceOr::Reference { reference } => {
+                            extract_type_and_format(&ReferenceOr::Reference {
+                                reference: reference.clone(),
+                            })?
+                        }
+                    };
+
+                    let is_required = obj.required.contains(field_name);
+                    fields.push(Field {
+                        name: field_name.clone(),
+                        field_type,
+                        format,
+                        is_required,
+                    });
+                }
+            }
+            Ok(fields)
+        }
     }
 }
