@@ -16,10 +16,10 @@ fn to_pascal_case(input: &str) -> String {
     if input.is_empty() {
         return input.to_string();
     }
-    
+
     let mut result = String::new();
     let mut capitalize_next = true;
-    
+
     for ch in input.chars() {
         if capitalize_next {
             result.push(ch.to_ascii_uppercase());
@@ -28,7 +28,7 @@ fn to_pascal_case(input: &str) -> String {
             result.push(ch);
         }
     }
-    
+
     result
 }
 
@@ -320,9 +320,7 @@ fn extract_fields_from_schema(
     let mut fields = Vec::new();
 
     match schema_ref {
-        ReferenceOr::Reference { .. } => {
-            Ok(fields)
-        }
+        ReferenceOr::Reference { .. } => Ok(fields),
         ReferenceOr::Item(schema) => {
             if let SchemaKind::Type(Type::Object(obj)) = &schema.schema_kind {
                 for (field_name, field_schema) in &obj.properties {
