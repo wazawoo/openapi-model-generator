@@ -19,6 +19,7 @@ pub struct Field {
     pub field_type: String,
     pub format: String,
     pub is_required: bool,
+    pub is_nullable: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -10,6 +10,14 @@ use openapiv3::{
     OpenAPI, ReferenceOr, Schema, SchemaKind, StringFormat, Type, VariantOrUnknownOrEmpty,
 };
 
+/// Information about a field extracted from OpenAPI schema
+#[derive(Debug)]
+struct FieldInfo {
+    field_type: String,
+    format: String,
+    is_nullable: bool,
+}
+
 /// Converts camelCase to PascalCase
 /// Example: "createRole" -> "CreateRole", "listRoles" -> "ListRoles"
 fn to_pascal_case(input: &str) -> String {
@@ -136,12 +144,12 @@ fn parse_schema_to_model_type(
                 SchemaKind::Type(Type::Object(obj)) => {
                     let mut fields = Vec::new();
                     for (field_name, field_schema) in &obj.properties {
-                        let (field_type, format) = match field_schema {
-                            ReferenceOr::Item(boxed_schema) => extract_type_and_format(
-                                &ReferenceOr::Item((**boxed_schema).clone()),
-                            )?,
+                        let field_info = match field_schema {
+                            ReferenceOr::Item(boxed_schema) => {
+                                extract_field_info(&ReferenceOr::Item((**boxed_schema).clone()))?
+                            }
                             ReferenceOr::Reference { reference } => {
-                                extract_type_and_format(&ReferenceOr::Reference {
+                                extract_field_info(&ReferenceOr::Reference {
                                     reference: reference.clone(),
                                 })?
                             }
@@ -150,9 +158,10 @@ fn parse_schema_to_model_type(
                         let is_required = obj.required.contains(field_name);
                         fields.push(Field {
                             name: field_name.clone(),
-                            field_type,
-                            format,
+                            field_type: field_info.field_type,
+                            format: field_info.format,
                             is_required,
+                            is_nullable: field_info.is_nullable,
                         });
                     }
                     Ok(Some(ModelType::Struct(Model {
@@ -253,6 +262,22 @@ fn extract_type_and_format(schema: &ReferenceOr<Schema>) -> Result<(String, Stri
     }
 }
 
+/// Extracts field information including type, format, and nullable flag from OpenAPI schema
+fn extract_field_info(schema: &ReferenceOr<Schema>) -> Result<FieldInfo> {
+    let (field_type, format) = extract_type_and_format(schema)?;
+
+    let is_nullable = match schema {
+        ReferenceOr::Reference { .. } => false,
+        ReferenceOr::Item(schema) => schema.schema_data.nullable,
+    };
+
+    Ok(FieldInfo {
+        field_type,
+        format,
+        is_nullable,
+    })
+}
+
 fn resolve_all_of_fields(
     _name: &str,
     all_of: &[ReferenceOr<Schema>],
@@ -324,12 +349,12 @@ fn extract_fields_from_schema(
         ReferenceOr::Item(schema) => {
             if let SchemaKind::Type(Type::Object(obj)) = &schema.schema_kind {
                 for (field_name, field_schema) in &obj.properties {
-                    let (field_type, format) = match field_schema {
+                    let field_info = match field_schema {
                         ReferenceOr::Item(boxed_schema) => {
-                            extract_type_and_format(&ReferenceOr::Item((**boxed_schema).clone()))?
+                            extract_field_info(&ReferenceOr::Item((**boxed_schema).clone()))?
                         }
                         ReferenceOr::Reference { reference } => {
-                            extract_type_and_format(&ReferenceOr::Reference {
+                            extract_field_info(&ReferenceOr::Reference {
                                 reference: reference.clone(),
                             })?
                         }
@@ -338,9 +363,10 @@ fn extract_fields_from_schema(
                     let is_required = obj.required.contains(field_name);
                     fields.push(Field {
                         name: field_name.clone(),
-                        field_type,
-                        format,
+                        field_type: field_info.field_type,
+                        format: field_info.format,
                         is_required,
+                        is_nullable: field_info.is_nullable,
                     });
                 }
             }

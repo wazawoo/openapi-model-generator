@@ -93,7 +93,7 @@ fn generate_model(model: &Model) -> Result<String> {
             field.name.to_lowercase()
         ));
 
-        if field.is_required {
+        if field.is_required && !field.is_nullable {
             output.push_str(&format!("    pub {lowercased_name}: {field_type},\n",));
         } else {
             output.push_str(&format!(
@@ -185,7 +185,7 @@ fn generate_union(union: &UnionModel) -> Result<String> {
                 field.name.to_lowercase()
             ));
 
-            if field.is_required {
+            if field.is_required && !field.is_nullable {
                 output.push_str(&format!("        {lowercased_name}: {field_type},\n"));
             } else {
                 output.push_str(&format!(
@@ -230,7 +230,7 @@ fn generate_composition(comp: &CompositionModel) -> Result<String> {
             field.name.to_lowercase()
         ));
 
-        if field.is_required {
+        if field.is_required && !field.is_nullable {
             output.push_str(&format!("    pub {lowercased_name}: {field_type},\n"));
         } else {
             output.push_str(&format!(
