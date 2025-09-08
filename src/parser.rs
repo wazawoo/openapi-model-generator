@@ -19,25 +19,19 @@ struct FieldInfo {
 }
 
 /// Converts camelCase to PascalCase
-/// Example: "createRole" -> "CreateRole", "listRoles" -> "ListRoles"
+/// Example: "createRole" -> "CreateRole", "listRoles" -> "ListRoles", "listRoles-Input" -> "ListRolesInput"
 fn to_pascal_case(input: &str) -> String {
-    if input.is_empty() {
-        return input.to_string();
-    }
-
-    let mut result = String::new();
-    let mut capitalize_next = true;
-
-    for ch in input.chars() {
-        if capitalize_next {
-            result.push(ch.to_ascii_uppercase());
-            capitalize_next = false;
-        } else {
-            result.push(ch);
-        }
-    }
-
-    result
+    input
+        .split(&['-', '_'][..]) // split on '-' or '_'
+        .filter(|s| !s.is_empty())
+        .map(|s| {
+            let mut chars = s.chars();
+            match chars.next() {
+                Some(first) => first.to_ascii_uppercase().to_string() + chars.as_str(),
+                None => String::new(),
+            }
+        })
+        .collect::<String>()
 }
 
 pub fn parse_openapi(
@@ -165,7 +159,7 @@ fn parse_schema_to_model_type(
                         });
                     }
                     Ok(Some(ModelType::Struct(Model {
-                        name: name.to_string(),
+                        name: to_pascal_case(name),
                         fields,
                     })))
                 }
@@ -174,7 +168,7 @@ fn parse_schema_to_model_type(
                 SchemaKind::AllOf { all_of } => {
                     let all_fields = resolve_all_of_fields(name, all_of, all_schemas)?;
                     Ok(Some(ModelType::Composition(CompositionModel {
-                        name: name.to_string(),
+                        name: to_pascal_case(name),
                         all_fields,
                     })))
                 }
@@ -183,7 +177,7 @@ fn parse_schema_to_model_type(
                 SchemaKind::OneOf { one_of } => {
                     let variants = resolve_union_variants(one_of, all_schemas)?;
                     Ok(Some(ModelType::Union(UnionModel {
-                        name: name.to_string(),
+                        name: to_pascal_case(name),
                         variants,
                         union_type: UnionType::OneOf,
                     })))
@@ -193,7 +187,7 @@ fn parse_schema_to_model_type(
                 SchemaKind::AnyOf { any_of } => {
                     let variants = resolve_union_variants(any_of, all_schemas)?;
                     Ok(Some(ModelType::Union(UnionModel {
-                        name: name.to_string(),
+                        name: to_pascal_case(name),
                         variants,
                         union_type: UnionType::AnyOf,
                     })))
@@ -209,7 +203,7 @@ fn extract_type_and_format(schema: &ReferenceOr<Schema>) -> Result<(String, Stri
     match schema {
         ReferenceOr::Reference { reference } => {
             let type_name = reference.split('/').next_back().unwrap_or("Unknown");
-            Ok((type_name.to_string(), "reference".to_string()))
+            Ok((to_pascal_case(type_name), "reference".to_string()))
         }
         ReferenceOr::Item(schema) => match &schema.schema_kind {
             SchemaKind::Type(Type::String(string_type)) => match &string_type.format {
@@ -231,7 +225,7 @@ fn extract_type_and_format(schema: &ReferenceOr<Schema>) -> Result<(String, Stri
             },
             SchemaKind::Type(Type::Integer(_)) => Ok(("i64".to_string(), "integer".to_string())),
             SchemaKind::Type(Type::Number(_)) => Ok(("f64".to_string(), "number".to_string())),
-            SchemaKind::Type(Type::Boolean {}) => Ok(("bool".to_string(), "boolean".to_string())),
+            SchemaKind::Type(Type::Boolean(_)) => Ok(("bool".to_string(), "boolean".to_string())),
             SchemaKind::Type(Type::Array(arr)) => {
                 if let Some(items) = &arr.items {
                     let items_ref: &ReferenceOr<Box<Schema>> = items;
@@ -318,7 +312,7 @@ fn resolve_union_variants(
                     if let Some(referenced_schema) = all_schemas.get(schema_name) {
                         let fields = extract_fields_from_schema(referenced_schema, all_schemas)?;
                         variants.push(UnionVariant {
-                            name: schema_name.to_string(),
+                            name: to_pascal_case(schema_name),
                             fields,
                         });
                     }
