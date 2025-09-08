@@ -231,7 +231,7 @@ fn extract_type_and_format(schema: &ReferenceOr<Schema>) -> Result<(String, Stri
             },
             SchemaKind::Type(Type::Integer(_)) => Ok(("i64".to_string(), "integer".to_string())),
             SchemaKind::Type(Type::Number(_)) => Ok(("f64".to_string(), "number".to_string())),
-            SchemaKind::Type(Type::Boolean {}) => Ok(("bool".to_string(), "boolean".to_string())),
+            SchemaKind::Type(Type::Boolean(_)) => Ok(("bool".to_string(), "boolean".to_string())),
             SchemaKind::Type(Type::Array(arr)) => {
                 if let Some(items) = &arr.items {
                     let items_ref: &ReferenceOr<Box<Schema>> = items;
