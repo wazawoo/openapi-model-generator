@@ -1,6 +1,6 @@
 [package]
 name = "openapi-model-generator"
-version = "0.2.1"
+version = "0.2.2"
 edition = "2021"
 description = "CLI tool for generating Rust models from OpenAPI v3 specs"
 license = "MIT OR Apache-2.0"

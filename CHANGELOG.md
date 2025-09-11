@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.2] - 2025-09-11
+
+### Fixed
+- **Name Normalization**: Fixed parser to consistently normalize schema, model, and variant names into PascalCase
+- **Idiomatic Rust Naming**: All generated Rust types now follow proper naming conventions
+- **Better Word Separation**: Improved `to_pascal_case` function to handle `-` and `_` as word separators
+- **Schema Reference Naming**: Applied PascalCase normalization when resolving `$ref` schema references
+- **Union Variant Naming**: Fixed naming of union variants to follow PascalCase conventions
+
+### Changed
+- Schema names with dashes or underscores (e.g., `user-name`, `list_roles`) now generate idiomatic Rust identifiers (`UserName`, `ListRoles`)
+- Prevents compilation errors from invalid Rust identifiers in generated code
+
 ## [0.2.1] - 2024-12-20
 
 ### Added

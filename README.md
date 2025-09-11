@@ -34,7 +34,7 @@ Add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-openapi-model-generator = "0.2.0"
+openapi-model-generator = "0.2.2"
 ```
 
 ## Usage
