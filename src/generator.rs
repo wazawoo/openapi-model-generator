@@ -228,7 +228,7 @@ fn generate_enum(enum_model: &EnumModel) -> Result<String> {
     let mut output = String::new();
 
     if let Some(description) = &enum_model.description {
-        output.push_str(&format!("/// {}\n", description));
+        output.push_str(&format!("/// {description}\n"));
     } else {
         output.push_str(&format!("/// {}\n", enum_model.name));
     }
@@ -242,7 +242,7 @@ fn generate_enum(enum_model: &EnumModel) -> Result<String> {
         let mut chars = variant.chars();
         let first_char = chars.next().unwrap().to_ascii_uppercase();
         let rest: String = chars.collect();
-        let mut rust_name = format!("{}{}", first_char, rest);
+        let mut rust_name = format!("{first_char}{rest}");
 
         let serde_rename = if is_reserved_word(&rust_name) {
             rust_name.push_str("Value");
@@ -254,13 +254,13 @@ fn generate_enum(enum_model: &EnumModel) -> Result<String> {
         };
 
         if let Some(rename) = serde_rename {
-            output.push_str(&format!("    #[serde(rename = \"{}\")]\n", rename));
+            output.push_str(&format!("    #[serde(rename = \"{rename}\")]\n"));
         }
 
         if i + 1 == enum_model.variants.len() {
-            output.push_str(&format!("    {}\n", rust_name));
+            output.push_str(&format!("    {rust_name}\n"));
         } else {
-            output.push_str(&format!("    {},\n", rust_name));
+            output.push_str(&format!("    {rust_name},\n"));
         }
     }
 

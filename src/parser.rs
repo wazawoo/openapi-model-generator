@@ -23,7 +23,7 @@ struct FieldInfo {
 /// Example: "createRole" -> "CreateRole", "listRoles" -> "ListRoles", "listRoles-Input" -> "ListRolesInput"
 fn to_pascal_case(input: &str) -> String {
     input
-        .split(&['-', '_'][..]) // split on '-' or '_'
+        .split(&['-', '_'][..])
         .filter(|s| !s.is_empty())
         .map(|s| {
             let mut chars = s.chars();
@@ -233,22 +233,16 @@ fn parse_schema_to_model_type(
                             .enumeration
                             .iter()
                             .filter_map(|value| {
-                                if let Some(s) = value {
-                                    Some(s.clone())
-                                } else {
-                                    None
-                                }
+                                value.clone()
                             })
                             .collect();
 
                         if !variants.is_empty() {
-                            let mut models = Vec::new();
-
-                            models.push(ModelType::Enum(EnumModel {
+                            let models = vec![ModelType::Enum(EnumModel {
                                 name: to_pascal_case(name),
                                 variants,
                                 description: schema.schema_data.description.clone(),
-                            }));
+                            })];
 
                             return Ok(models);
                         }
@@ -270,12 +264,9 @@ fn extract_type_and_format(
         ReferenceOr::Reference { reference } => {
             let type_name = reference.split('/').next_back().unwrap_or("Unknown");
 
-            if let Some(referenced_schema) = all_schemas.get(type_name) {
-                if let ReferenceOr::Item(schema) = referenced_schema {
-                    if matches!(schema.schema_kind, SchemaKind::OneOf { .. }) {
-                        // Для oneOf возвращаем имя типа как есть
-                        return Ok((to_pascal_case(type_name), "oneOf".to_string()));
-                    }
+            if let Some(ReferenceOr::Item(schema)) = all_schemas.get(type_name) {
+                if matches!(schema.schema_kind, SchemaKind::OneOf { .. }) {
+                    return Ok((to_pascal_case(type_name), "oneOf".to_string()));
                 }
             }
             Ok((to_pascal_case(type_name), "reference".to_string()))
@@ -312,18 +303,10 @@ fn extract_type_and_format(
                         )?,
                         ReferenceOr::Reference { reference } => {
                             let type_name = reference.split('/').next_back().unwrap_or("Unknown");
-                            if let Some(referenced_schema) = all_schemas.get(type_name) {
-                                if let ReferenceOr::Item(schema) = referenced_schema {
-                                    if matches!(schema.schema_kind, SchemaKind::OneOf { .. }) {
-                                        (to_pascal_case(type_name), "oneOf".to_string())
-                                    } else {
-                                        extract_type_and_format(
-                                            &ReferenceOr::Reference {
-                                                reference: reference.clone(),
-                                            },
-                                            all_schemas,
-                                        )?
-                                    }
+
+                            if let Some(ReferenceOr::Item(schema)) = all_schemas.get(type_name) {
+                                if matches!(schema.schema_kind, SchemaKind::OneOf { .. }) {
+                                    (to_pascal_case(type_name), "oneOf".to_string())
                                 } else {
                                     extract_type_and_format(
                                         &ReferenceOr::Reference {
@@ -381,13 +364,8 @@ fn extract_field_info(
                     }))
                 }
                 SchemaKind::Type(Type::Object(_)) => {
-                    if field_name == "value" || field_name == "default_value" {
-                        field_type = "serde_json::Value".to_string();
-                        None
-                    } else {
-                        field_type = "serde_json::Value".to_string();
-                        None
-                    }
+                    field_type = "serde_json::Value".to_string();
+                    None
                 }
                 _ => None,
             };
@@ -469,7 +447,7 @@ fn resolve_union_variants(
                     enum_values.extend(
                         n.enumeration
                             .iter()
-                            .filter_map(|v| v.map(|num| format!("Value{}", num))),
+                            .filter_map(|v| v.map(|num| format!("Value{num}"))),
                     );
                 }
 
@@ -477,18 +455,16 @@ fn resolve_union_variants(
             },
             ReferenceOr::Reference { reference } => {
                 if let Some(n) = reference.strip_prefix("#/components/schemas/") {
-                    if let Some(sub_schema) = all_schemas.get(n) {
-                        if let ReferenceOr::Item(inner) = sub_schema {
-                            if let SchemaKind::Type(Type::String(s)) = &inner.schema_kind {
-                                let values: Vec<String> = s
-                                    .enumeration
-                                    .iter()
-                                    .filter_map(|v| v.as_ref().cloned())
-                                    .collect();
-                                enum_values.extend(values);
-                            } else {
-                                is_all_simple_enum = false;
-                            }
+                    if let Some(ReferenceOr::Item(inner)) = all_schemas.get(n) {
+                        if let SchemaKind::Type(Type::String(s)) = &inner.schema_kind {
+                            let values: Vec<String> = s
+                                .enumeration
+                                .iter()
+                                .filter_map(|v| v.as_ref().cloned())
+                                .collect();
+                            enum_values.extend(values);
+                        } else {
+                            is_all_simple_enum = false;
                         }
                     }
                 }
@@ -514,7 +490,6 @@ fn resolve_union_variants(
                     if let Some(referenced_schema) = all_schemas.get(schema_name) {
                         if let ReferenceOr::Item(schema) = referenced_schema {
                             if matches!(schema.schema_kind, SchemaKind::OneOf { .. }) {
-                                // Для oneOf просто добавляем имя типа
                                 variants.push(UnionVariant {
                                     name: to_pascal_case(schema_name),
                                     fields: vec![],
@@ -628,7 +603,7 @@ fn extract_fields_from_schema(
                         variants: n
                             .enumeration
                             .iter()
-                            .filter_map(|v| v.map(|num| format!("Value{}", num)))
+                            .filter_map(|v| v.map(|num| format!("Value{num}")))
                             .collect(),
                         description: schema.schema_data.description.clone(),
                     });
