@@ -75,11 +75,11 @@ fn main() -> Result<()> {
 
     let rust_code = generator::generate_models(&models, &requests, &responses)?;
     let output_models_path = args.output.join("models.rs");
-    fs::write(&output_models_path, rust_code)?;
+    fs::write(&output_models_path, rust_code.trim())?;
 
     let rust_lib = generator::generate_lib()?;
     let output_lib_path = args.output.join("mod.rs");
-    fs::write(&output_lib_path, rust_lib)?;
+    fs::write(&output_lib_path, rust_lib.trim())?;
 
     println!("Models generated successfully to {output_models_path:?}");
 

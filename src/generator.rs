@@ -1,6 +1,7 @@
 use crate::{
     models::{
-        CompositionModel, Model, ModelType, RequestModel, ResponseModel, UnionModel, UnionType,
+        CompositionModel, EnumModel, Model, ModelType, RequestModel, ResponseModel, UnionModel,
+        UnionType,
     },
     Result,
 };
@@ -17,7 +18,7 @@ const EMPTY_RESPONSE_NAME: &str = "UnknownResponse";
 const EMPTY_REQUEST_NAME: &str = "UnknownRequest";
 
 fn is_reserved_word(string_to_check: &str) -> bool {
-    RUST_RESERVED_KEYWORDS.contains(&string_to_check)
+    RUST_RESERVED_KEYWORDS.contains(&string_to_check.to_lowercase().as_str())
 }
 
 pub fn generate_models(
@@ -43,6 +44,10 @@ pub fn generate_models(
             }
             ModelType::Composition(comp) => {
                 output.push_str(&generate_composition(comp)?);
+                output.push('\n');
+            }
+            ModelType::Enum(enum_model) => {
+                output.push_str(&generate_enum(enum_model)?);
                 output.push('\n');
             }
         }
@@ -88,10 +93,13 @@ fn generate_model(model: &Model) -> Result<String> {
             lowercased_name = format!("r#{lowercased_name}")
         }
 
-        output.push_str(&format!(
-            "    #[serde(rename = \"{}\")]\n",
-            field.name.to_lowercase()
-        ));
+        // Only add serde rename if the Rust field name differs from the original field name
+        if lowercased_name != field.name {
+            output.push_str(&format!(
+                "    #[serde(rename = \"{}\")]\n",
+                field.name
+            ));
+        }
 
         if field.is_required && !field.is_nullable {
             output.push_str(&format!("    pub {lowercased_name}: {field_type},\n",));
@@ -127,7 +135,6 @@ fn generate_request_model(request: &RequestModel) -> Result<String> {
 fn generate_response_model(response: &ResponseModel) -> Result<String> {
     let mut output = String::new();
 
-    // Return if name is empty
     if response.name.is_empty() || response.name == EMPTY_RESPONSE_NAME {
         return Ok(String::new());
     }
@@ -157,44 +164,15 @@ fn generate_union(union: &UnionModel) -> Result<String> {
         }
     ));
     output.push_str("#[derive(Debug, Serialize, Deserialize)]\n");
-    output.push_str("#[serde(tag = \"type\")]\n");
+    output.push_str("#[serde(untagged)]\n");
     output.push_str(&format!("pub enum {} {{\n", union.name));
 
     for variant in &union.variants {
-        output.push_str(&format!("    {} {{\n", variant.name));
-
-        for field in &variant.fields {
-            let field_type = match field.field_type.as_str() {
-                "String" => "String",
-                "f64" => "f64",
-                "i64" => "i64",
-                "bool" => "bool",
-                "DateTime" => "DateTime<Utc>",
-                "Date" => "NaiveDate",
-                "Uuid" => "Uuid",
-                _ => &field.field_type,
-            };
-
-            let mut lowercased_name = field.name.to_lowercase();
-            if is_reserved_word(&lowercased_name) {
-                lowercased_name = format!("r#{lowercased_name}");
-            }
-
             output.push_str(&format!(
-                "        #[serde(rename = \"{}\")]\n",
-                field.name.to_lowercase()
+                "    {}({}),\n",
+                variant.name,
+                variant.name
             ));
-
-            if field.is_required && !field.is_nullable {
-                output.push_str(&format!("        {lowercased_name}: {field_type},\n"));
-            } else {
-                output.push_str(&format!(
-                    "        {lowercased_name}: Option<{field_type}>,\n"
-                ));
-            }
-        }
-
-        output.push_str("    },\n");
     }
 
     output.push_str("}\n");
@@ -225,10 +203,13 @@ fn generate_composition(comp: &CompositionModel) -> Result<String> {
             lowercased_name = format!("r#{lowercased_name}");
         }
 
-        output.push_str(&format!(
-            "    #[serde(rename = \"{}\")]\n",
-            field.name.to_lowercase()
-        ));
+        // Only add serde rename if the Rust field name differs from the original field name
+        if lowercased_name != field.name {
+            output.push_str(&format!(
+                "    #[serde(rename = \"{}\")]\n",
+                field.name
+            ));
+        }
 
         if field.is_required && !field.is_nullable {
             output.push_str(&format!("    pub {lowercased_name}: {field_type},\n"));
@@ -236,6 +217,50 @@ fn generate_composition(comp: &CompositionModel) -> Result<String> {
             output.push_str(&format!(
                 "    pub {lowercased_name}: Option<{field_type}>,\n"
             ));
+        }
+    }
+
+    output.push_str("}\n");
+    Ok(output)
+}
+
+fn generate_enum(enum_model: &EnumModel) -> Result<String> {
+    let mut output = String::new();
+
+    if let Some(description) = &enum_model.description {
+        output.push_str(&format!("/// {}\n", description));
+    } else {
+        output.push_str(&format!("/// {}\n", enum_model.name));
+    }
+
+    output.push_str("#[derive(Debug, Clone, Serialize, Deserialize)]\n");
+    output.push_str(&format!("pub enum {} {{\n", enum_model.name));
+
+    for (i, variant) in enum_model.variants.iter().enumerate() {
+        let original = variant.clone();
+
+        let mut chars = variant.chars();
+        let first_char = chars.next().unwrap().to_ascii_uppercase();
+        let rest: String = chars.collect();
+        let mut rust_name = format!("{}{}", first_char, rest);
+
+        let serde_rename = if is_reserved_word(&rust_name) {
+            rust_name.push_str("Value");
+            Some(original)
+        } else if rust_name != original {
+            Some(original)
+        } else {
+            None
+        };
+
+        if let Some(rename) = serde_rename {
+            output.push_str(&format!("    #[serde(rename = \"{}\")]\n", rename));
+        }
+
+        if i + 1 == enum_model.variants.len() {
+            output.push_str(&format!("    {}\n", rust_name));
+        } else {
+            output.push_str(&format!("    {},\n", rust_name));
         }
     }
 
@@ -272,10 +297,13 @@ pub fn generate_rust_code(models: &[Model]) -> Result<String> {
                 lowercased_name = format!("r#{lowercased_name}")
             }
 
-            code.push_str(&format!(
-                "    #[serde(rename = \"{}\")]\n",
-                field.name.to_lowercase()
-            ));
+            // Only add serde rename if the Rust field name differs from the original field name
+            if lowercased_name != field.name {
+                code.push_str(&format!(
+                    "    #[serde(rename = \"{}\")]\n",
+                    field.name
+                ));
+            }
 
             if field.is_required {
                 code.push_str(&format!("    pub {lowercased_name}: {field_type},\n",));

@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2025-10-21
+### Added
+- **Enum Support**: The generator now automatically creates Rust enums from OpenAPI string schemas that include an enum constraint. This provides type-safe representations for fixed sets of values.
+
+### Fixed
+- **Nullable Field Handling in allOf**: Resolved a critical issue where nullable fields within allOf compositions were incorrectly generating Option<Option<T>> types. The parser and generator now correctly produce a single Option<T>.
+- **oneOf Serialization**: Fixed the generation of oneOf schemas to use #[serde(untagged)] instead of the default tagged serialization. This ensures that the generated Rust enums correctly serialize and deserialize according to the OpenAPI oneOf specification, which does not require a discriminator field.
+
 ## [0.2.2] - 2025-09-11
 
 ### Fixed
@@ -18,14 +26,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Schema names with dashes or underscores (e.g., `user-name`, `list_roles`) now generate idiomatic Rust identifiers (`UserName`, `ListRoles`)
 - Prevents compilation errors from invalid Rust identifiers in generated code
 
-## [0.2.1] - 2024-12-20
+## [0.2.1] - 2025-09-06
 
 ### Added
 - **Nullable Field Support**: Fields with `nullable: true` now generate `Option<T>` type correctly
 - **Smart Option Generation**: Fields become `Option<T>` when either not required OR nullable
 - **Enhanced Type Safety**: Better representation of optional vs nullable fields in generated Rust code
 
-## [0.2.0] - 2024-08-26
+## [0.2.0] - 2025-08-26
 
 ### Added
 - **UUID Format Support**: Fields with `type: string, format: uuid` now generate `Uuid` type instead of `String`

@@ -11,6 +11,7 @@ A Rust library and CLI tool for generating Rust models from OpenAPI specificatio
   - `allOf` - Combines multiple schemas into a single struct
   - `oneOf` / `anyOf` - Generates tagged union enums with proper serde configuration
 - **Advanced Type Support**: 
+  - Enum Support - Automatically generates Rust enums from OpenAPI string schemas with enumeration constraints.
   - UUID fields (`format: uuid` → `Uuid` type)
   - DateTime fields (`format: date-time` → `DateTime<Utc>` type)
   - Nested types and arrays with proper generic handling
