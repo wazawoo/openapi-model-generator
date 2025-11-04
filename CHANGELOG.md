@@ -5,6 +5,10 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.1] - 2025-11-04
+### Fixed
+- **Response generation**: Fixed issue with response generation. [GitHub issue](https://github.com/denislituev/openapi-model-generator/issues/12)
+
 ## [0.3.0] - 2025-10-21
 ### Added
 - **Enum Support**: The generator now automatically creates Rust enums from OpenAPI string schemas that include an enum constraint. This provides type-safe representations for fixed sets of values.

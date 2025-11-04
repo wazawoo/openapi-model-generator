@@ -130,22 +130,27 @@ fn generate_request_model(request: &RequestModel) -> Result<String> {
 }
 
 fn generate_response_model(response: &ResponseModel) -> Result<String> {
-    let mut output = String::new();
-
     if response.name.is_empty() || response.name == EMPTY_RESPONSE_NAME {
         return Ok(String::new());
     }
 
-    output.push_str(&format!("/// {}\n", response.name));
-    output.push_str("#[derive(Debug, Deserialize)]\n");
-    output.push_str(&format!("pub struct {} {{\n", response.name));
-    output.push_str("    pub status_code: String,\n");
-    output.push_str("    pub content_type: String,\n");
-    output.push_str(&format!("    pub body: {},\n", response.schema));
+    let type_name = format!("{}{}", response.name, response.status_code);
+
+    let mut output = String::new();
+
     if let Some(desc) = &response.description {
-        output.push_str(&format!("    /// {desc}\n"));
+        for line in desc.lines() {
+            output.push_str(&format!("/// {}\n", line.trim()));
+        }
+    } else {
+        output.push_str(&format!("/// {type_name}\n"));
     }
+
+    output.push_str("#[derive(Debug, Deserialize)]\n");
+    output.push_str(&format!("pub struct {type_name} {{\n"));
+    output.push_str(&format!("    pub body: {},\n", response.schema));
     output.push_str("}\n");
+
     Ok(output)
 }
 
