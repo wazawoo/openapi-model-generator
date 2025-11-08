@@ -36,31 +36,25 @@ pub fn generate_models(
         match model_type {
             ModelType::Struct(model) => {
                 output.push_str(&generate_model(model)?);
-                output.push('\n');
             }
             ModelType::Union(union) => {
                 output.push_str(&generate_union(union)?);
-                output.push('\n');
             }
             ModelType::Composition(comp) => {
                 output.push_str(&generate_composition(comp)?);
-                output.push('\n');
             }
             ModelType::Enum(enum_model) => {
                 output.push_str(&generate_enum(enum_model)?);
-                output.push('\n');
             }
         }
     }
 
     for request in requests {
         output.push_str(&generate_request_model(request)?);
-        output.push('\n');
     }
 
     for response in responses {
         output.push_str(&generate_response_model(response)?);
-        output.push('\n');
     }
 
     Ok(output)
@@ -73,7 +67,7 @@ fn generate_model(model: &Model) -> Result<String> {
         output.push_str(&format!("/// {}\n", model.name));
     }
 
-    output.push_str("#[derive(Debug, Serialize, Deserialize)]\n");
+    output.push_str("#[derive(Debug, Clone, Serialize, Deserialize)]\n");
     output.push_str(&format!("pub struct {} {{\n", model.name));
 
     for field in &model.fields {
@@ -121,9 +115,8 @@ fn generate_request_model(request: &RequestModel) -> Result<String> {
     }
 
     output.push_str(&format!("/// {}\n", request.name));
-    output.push_str("#[derive(Debug, Serialize)]\n");
+    output.push_str("#[derive(Debug, Clone, Serialize)]\n");
     output.push_str(&format!("pub struct {} {{\n", request.name));
-    output.push_str("    pub content_type: String,\n");
     output.push_str(&format!("    pub body: {},\n", request.schema));
     output.push_str("}\n");
     Ok(output)
@@ -146,7 +139,7 @@ fn generate_response_model(response: &ResponseModel) -> Result<String> {
         output.push_str(&format!("/// {type_name}\n"));
     }
 
-    output.push_str("#[derive(Debug, Deserialize)]\n");
+    output.push_str("#[derive(Debug, Clone, Deserialize)]\n");
     output.push_str(&format!("pub struct {type_name} {{\n"));
     output.push_str(&format!("    pub body: {},\n", response.schema));
     output.push_str("}\n");
@@ -165,7 +158,7 @@ fn generate_union(union: &UnionModel) -> Result<String> {
             UnionType::AnyOf => "anyOf",
         }
     ));
-    output.push_str("#[derive(Debug, Serialize, Deserialize)]\n");
+    output.push_str("#[derive(Debug, Clone, Serialize, Deserialize)]\n");
     output.push_str("#[serde(untagged)]\n");
     output.push_str(&format!("pub enum {} {{\n", union.name));
 
@@ -181,7 +174,7 @@ fn generate_composition(comp: &CompositionModel) -> Result<String> {
     let mut output = String::new();
 
     output.push_str(&format!("/// {} (allOf composition)\n", comp.name));
-    output.push_str("#[derive(Debug, Serialize, Deserialize)]\n");
+    output.push_str("#[derive(Debug, Clone, Serialize, Deserialize)]\n");
     output.push_str(&format!("pub struct {} {{\n", comp.name));
 
     for field in &comp.all_fields {
@@ -272,7 +265,7 @@ pub fn generate_rust_code(models: &[Model]) -> Result<String> {
 
     for model in models {
         code.push_str(&format!("/// {}\n", model.name));
-        code.push_str("#[derive(Debug, Serialize, Deserialize)]\n");
+        code.push_str("#[derive(Debug, Clone, Serialize, Deserialize)]\n");
         code.push_str(&format!("pub struct {} {{\n", model.name));
 
         for field in &model.fields {
