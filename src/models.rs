@@ -25,6 +25,7 @@ impl ModelType {
 pub struct Model {
     pub name: String,
     pub fields: Vec<Field>,
+    pub custom_attrs: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -41,6 +42,7 @@ pub struct UnionModel {
     pub name: String,
     pub variants: Vec<UnionVariant>,
     pub union_type: UnionType,
+    pub custom_attrs: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -59,6 +61,7 @@ pub struct UnionVariant {
 pub struct CompositionModel {
     pub name: String,
     pub all_fields: Vec<Field>,
+    pub custom_attrs: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -83,6 +86,7 @@ pub struct EnumModel {
     pub name: String,
     pub variants: Vec<String>,
     pub description: Option<String>,
+    pub custom_attrs: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -90,4 +94,5 @@ pub struct TypeAliasModel {
     pub name: String,
     pub target_type: String,
     pub description: Option<String>,
+    pub custom_attrs: Option<Vec<String>>,
 }

@@ -35,6 +35,33 @@ fn to_pascal_case(input: &str) -> String {
         .collect::<String>()
 }
 
+/// Extracts custom Rust attributes from x-rust-attrs extension
+fn extract_custom_attrs(schema: &Schema) -> Option<Vec<String>> {
+    schema
+        .schema_data
+        .extensions
+        .get("x-rust-attrs")
+        .and_then(|value| {
+            if let Some(arr) = value.as_array() {
+                let attrs: Vec<String> = arr
+                    .iter()
+                    .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                    .collect();
+                if attrs.is_empty() {
+                    None
+                } else {
+                    Some(attrs)
+                }
+            } else {
+                tracing::warn!(
+                    "x-rust-attrs should be an array of strings, got: {:?}",
+                    value
+                );
+                None
+            }
+        })
+}
+
 pub fn parse_openapi(
     openapi: &OpenAPI,
 ) -> Result<(Vec<ModelType>, Vec<RequestModel>, Vec<ResponseModel>)> {
@@ -214,6 +241,7 @@ fn parse_schema_to_model_type(
                         name: to_pascal_case(name),
                         target_type: type_str.to_string(),
                         description: schema.schema_data.description.clone(),
+                        custom_attrs: extract_custom_attrs(schema),
                     })]);
                 }
             }
@@ -255,6 +283,7 @@ fn parse_schema_to_model_type(
                         models.push(ModelType::Struct(Model {
                             name: to_pascal_case(name),
                             fields,
+                            custom_attrs: extract_custom_attrs(schema),
                         }));
                     }
                     Ok(models)
@@ -270,6 +299,7 @@ fn parse_schema_to_model_type(
                         models.push(ModelType::Composition(CompositionModel {
                             name: to_pascal_case(name),
                             all_fields,
+                            custom_attrs: extract_custom_attrs(schema),
                         }));
                     }
 
@@ -286,6 +316,7 @@ fn parse_schema_to_model_type(
                         name: to_pascal_case(name),
                         variants,
                         union_type: UnionType::OneOf,
+                        custom_attrs: extract_custom_attrs(schema),
                     }));
 
                     Ok(models)
@@ -301,6 +332,7 @@ fn parse_schema_to_model_type(
                         name: to_pascal_case(name),
                         variants,
                         union_type: UnionType::AnyOf,
+                        custom_attrs: extract_custom_attrs(schema),
                     }));
 
                     Ok(models)
@@ -320,6 +352,7 @@ fn parse_schema_to_model_type(
                                 name: to_pascal_case(name),
                                 variants,
                                 description: schema.schema_data.description.clone(),
+                                custom_attrs: extract_custom_attrs(schema),
                             })];
 
                             return Ok(models);
@@ -453,6 +486,7 @@ fn extract_field_info(
                         name: to_pascal_case(field_name),
                         variants,
                         description: schema.schema_data.description.clone(),
+                        custom_attrs: extract_custom_attrs(schema),
                     }))
                 }
                 SchemaKind::Type(Type::Object(_)) => {
@@ -594,6 +628,7 @@ fn resolve_union_variants(
             name: enum_name.clone(),
             variants: enum_values.iter().map(|v| to_pascal_case(v)).collect(),
             description: None,
+            custom_attrs: None, // Collective enum from multiple schemas, no single source for attrs
         });
 
         return Ok((vec![], vec![enum_model]));
@@ -704,6 +739,7 @@ fn extract_fields_from_schema(
                             .filter_map(|v| v.as_ref().map(|s| to_pascal_case(s)))
                             .collect(),
                         description: schema.schema_data.description.clone(),
+                        custom_attrs: extract_custom_attrs(schema),
                     });
 
                     inline_models.push(enum_model);
@@ -723,6 +759,7 @@ fn extract_fields_from_schema(
                             .filter_map(|v| v.map(|num| format!("Value{num}")))
                             .collect(),
                         description: schema.schema_data.description.clone(),
+                        custom_attrs: extract_custom_attrs(schema),
                     });
 
                     inline_models.push(enum_model);
@@ -1109,6 +1146,153 @@ mod tests {
                 assert_eq!(alias.target_type, "payments::Payment");
             }
             _ => panic!("Expected TypeAlias for oneOf with x-rust-type"),
+        }
+    }
+
+    #[test]
+    fn test_x_rust_attrs_on_struct() {
+        let openapi_spec: OpenAPI = serde_json::from_value(json!({
+            "openapi": "3.0.0",
+            "info": { "title": "Test API", "version": "1.0.0" },
+            "paths": {},
+            "components": {
+                "schemas": {
+                    "User": {
+                        "type": "object",
+                        "x-rust-attrs": [
+                            "#[derive(Serialize, Deserialize)]",
+                            "#[serde(rename_all = \"camelCase\")]"
+                        ],
+                        "properties": {
+                            "name": { "type": "string" }
+                        }
+                    }
+                }
+            }
+        }))
+        .expect("Failed to deserialize OpenAPI spec");
+
+        let (models, _, _) = parse_openapi(&openapi_spec).expect("Failed to parse OpenAPI spec");
+
+        let user_model = models.iter().find(|m| m.name() == "User");
+        assert!(user_model.is_some(), "Expected User model");
+
+        match user_model.unwrap() {
+            ModelType::Struct(model) => {
+                assert!(model.custom_attrs.is_some(), "Expected custom_attrs");
+                let attrs = model.custom_attrs.as_ref().unwrap();
+                assert_eq!(attrs.len(), 2);
+                assert_eq!(attrs[0], "#[derive(Serialize, Deserialize)]");
+                assert_eq!(attrs[1], "#[serde(rename_all = \"camelCase\")]");
+            }
+            _ => panic!("Expected Struct model"),
+        }
+    }
+
+    #[test]
+    fn test_x_rust_attrs_on_enum() {
+        let openapi_spec: OpenAPI = serde_json::from_value(json!({
+            "openapi": "3.0.0",
+            "info": { "title": "Test API", "version": "1.0.0" },
+            "paths": {},
+            "components": {
+                "schemas": {
+                    "Status": {
+                        "type": "string",
+                        "enum": ["active", "inactive"],
+                        "x-rust-attrs": ["#[serde(rename_all = \"UPPERCASE\")]"]
+                    }
+                }
+            }
+        }))
+        .expect("Failed to deserialize OpenAPI spec");
+
+        let (models, _, _) = parse_openapi(&openapi_spec).expect("Failed to parse OpenAPI spec");
+
+        let status_model = models.iter().find(|m| m.name() == "Status");
+        assert!(status_model.is_some(), "Expected Status model");
+
+        match status_model.unwrap() {
+            ModelType::Enum(enum_model) => {
+                assert!(enum_model.custom_attrs.is_some());
+                let attrs = enum_model.custom_attrs.as_ref().unwrap();
+                assert_eq!(attrs.len(), 1);
+                assert_eq!(attrs[0], "#[serde(rename_all = \"UPPERCASE\")]");
+            }
+            _ => panic!("Expected Enum model"),
+        }
+    }
+
+    #[test]
+    fn test_x_rust_attrs_with_x_rust_type() {
+        let openapi_spec: OpenAPI = serde_json::from_value(json!({
+            "openapi": "3.0.0",
+            "info": { "title": "Test API", "version": "1.0.0" },
+            "paths": {},
+            "components": {
+                "schemas": {
+                    "User": {
+                        "type": "object",
+                        "x-rust-type": "crate::domain::User",
+                        "x-rust-attrs": ["#[cfg_attr(test, derive(Default))]"],
+                        "properties": {
+                            "name": { "type": "string" }
+                        }
+                    }
+                }
+            }
+        }))
+        .expect("Failed to deserialize OpenAPI spec");
+
+        let (models, _, _) = parse_openapi(&openapi_spec).expect("Failed to parse OpenAPI spec");
+
+        let user_model = models.iter().find(|m| m.name() == "User");
+        assert!(user_model.is_some(), "Expected User model");
+
+        // Должен быть TypeAlias с атрибутами
+        match user_model.unwrap() {
+            ModelType::TypeAlias(alias) => {
+                assert_eq!(alias.target_type, "crate::domain::User");
+                assert!(alias.custom_attrs.is_some());
+                let attrs = alias.custom_attrs.as_ref().unwrap();
+                assert_eq!(attrs.len(), 1);
+                assert_eq!(attrs[0], "#[cfg_attr(test, derive(Default))]");
+            }
+            _ => panic!("Expected TypeAlias with custom attrs"),
+        }
+    }
+
+    #[test]
+    fn test_x_rust_attrs_empty_array() {
+        let openapi_spec: OpenAPI = serde_json::from_value(json!({
+            "openapi": "3.0.0",
+            "info": { "title": "Test API", "version": "1.0.0" },
+            "paths": {},
+            "components": {
+                "schemas": {
+                    "User": {
+                        "type": "object",
+                        "x-rust-attrs": [],
+                        "properties": {
+                            "name": { "type": "string" }
+                        }
+                    }
+                }
+            }
+        }))
+        .expect("Failed to deserialize OpenAPI spec");
+
+        let (models, _, _) = parse_openapi(&openapi_spec).expect("Failed to parse OpenAPI spec");
+
+        let user_model = models.iter().find(|m| m.name() == "User");
+        assert!(user_model.is_some());
+
+        match user_model.unwrap() {
+            ModelType::Struct(model) => {
+                // Пустой массив должен результировать в None
+                assert!(model.custom_attrs.is_none());
+            }
+            _ => panic!("Expected Struct"),
         }
     }
 }

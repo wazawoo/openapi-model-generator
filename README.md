@@ -17,6 +17,7 @@ A Rust library and CLI tool for generating Rust models from OpenAPI specificatio
   - Nested types and arrays with proper generic handling
 - **Custom Type Support**:
   - `x-rust-type` extension - Replace generated models with custom Rust types (type aliases)
+  - `x-rust-attrs` extension - Add custom Rust attributes to generated types
   - Works with any schema type (object, enum, oneOf, etc.)
 - **Request Bodies Support**: Full parsing and model generation from `components.requestBodies`
 - **Smart Code Generation**:
@@ -39,7 +40,7 @@ Add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-openapi-model-generator = "0.3.1"
+openapi-model-generator = "0.4.0"
 ```
 
 ## Usage
@@ -157,6 +158,84 @@ This allows you to:
 - Reuse existing domain models instead of generating duplicates
 - Integrate with types from other crates
 - Maintain a clean separation between API models and domain models
+
+### Using Custom Attributes with `x-rust-attrs`
+
+You can use the `x-rust-attrs` extension to add arbitrary Rust attributes to generated types:
+
+```yaml
+components:
+  schemas:
+    User:
+      type: object
+      x-rust-attrs:
+        - "#[serde(rename_all = \"camelCase\")]"
+      properties:
+        user_id:
+          type: string
+          format: uuid
+        first_name:
+          type: string
+        is_active:
+          type: boolean
+      required:
+        - user_id
+        - first_name
+    
+    Status:
+      type: string
+      enum: [ACTIVE, INACTIVE, PENDING]
+      x-rust-attrs:
+        - "#[serde(rename_all = \"UPPERCASE\")]"
+    
+    Product:
+      type: object
+      x-rust-attrs:
+        - "#[derive(Serialize, Deserialize)]"
+        - "#[serde(deny_unknown_fields)]"
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+```
+
+Generated Rust code:
+```rust
+/// User
+#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct User {
+    pub user_id: Uuid,
+    pub first_name: String,
+    pub is_active: Option<bool>,
+}
+
+/// Status
+#[serde(rename_all = "UPPERCASE")]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum Status {
+    ACTIVE,
+    INACTIVE,
+    PENDING
+}
+
+/// Product
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Product {
+    pub id: Option<String>,
+    pub name: Option<String>,
+}
+```
+
+This allows you to:
+- Add custom serde rules (rename_all, deny_unknown_fields, tag, etc.)
+- Enable additional trait derives
+- Apply conditional compilation attributes (cfg, cfg_attr)
+- Use custom validation macros
+- Works together with `x-rust-type` extension
 
 ## Development
 

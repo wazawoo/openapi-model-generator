@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.4.0] - 2025-11-13
 
 ### Added
 - **Request Bodies Support**: Full parsing and model generation from `components.requestBodies`. The generator now extracts schemas from request bodies and creates appropriate Rust models, supporting both inline schemas and `$ref` references.
@@ -14,6 +14,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Integration with types from other crates
   - Clean separation between API models and domain models
   - Works with any schema type (object, enum, oneOf, anyOf, allOf)
+- **Custom Attributes Extension (`x-rust-attrs`)**: Added support for the `x-rust-attrs` OpenAPI vendor extension. Allows adding arbitrary Rust attributes to generated types:
+  - Custom derives (e.g., additional traits)
+  - Serde rules (rename_all, deny_unknown_fields, etc.)
+  - Conditional compilation attributes (cfg, cfg_attr)
+  - Works with structs, enums, unions, compositions, and type aliases
+  - Preserves attribute order
+  - Compatible with `x-rust-type` extension
 
 ### Fixed
 - **Nullable Fields in Referenced Schemas**: Fixed handling of `nullable` flag for fields that use `$ref` to reference other schemas. The nullable flag is now correctly resolved from the target schema.
