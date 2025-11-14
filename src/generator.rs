@@ -21,44 +21,105 @@ fn is_reserved_word(string_to_check: &str) -> bool {
     RUST_RESERVED_KEYWORDS.contains(&string_to_check.to_lowercase().as_str())
 }
 
+/// Checks if custom attributes contain a derive attribute
+fn has_custom_derive(custom_attrs: &Option<Vec<String>>) -> bool {
+    if let Some(attrs) = custom_attrs {
+        attrs
+            .iter()
+            .any(|attr| attr.trim().starts_with("#[derive("))
+    } else {
+        false
+    }
+}
+
+/// Checks if custom attributes contain a serde attribute
+fn has_custom_serde(custom_attrs: &Option<Vec<String>>) -> bool {
+    if let Some(attrs) = custom_attrs {
+        attrs.iter().any(|attr| attr.trim().starts_with("#[serde("))
+    } else {
+        false
+    }
+}
+
+/// Generates custom attributes from x-rust-attrs
+fn generate_custom_attrs(custom_attrs: &Option<Vec<String>>) -> String {
+    if let Some(attrs) = custom_attrs {
+        attrs
+            .iter()
+            .map(|attr| format!("{attr}\n"))
+            .collect::<String>()
+    } else {
+        String::new()
+    }
+}
+
 pub fn generate_models(
     models: &[ModelType],
     requests: &[RequestModel],
     responses: &[ResponseModel],
 ) -> Result<String> {
-    let mut output = String::new();
-
-    output.push_str("use serde::{Serialize, Deserialize};\n");
-    output.push_str("use uuid::Uuid;\n");
-    output.push_str("use chrono::{DateTime, NaiveDate, Utc};\n\n");
+    // First, generate all model code to determine which imports are needed
+    let mut models_code = String::new();
 
     for model_type in models {
         match model_type {
             ModelType::Struct(model) => {
-                output.push_str(&generate_model(model)?);
+                models_code.push_str(&generate_model(model)?);
             }
             ModelType::Union(union) => {
-                output.push_str(&generate_union(union)?);
+                models_code.push_str(&generate_union(union)?);
             }
             ModelType::Composition(comp) => {
-                output.push_str(&generate_composition(comp)?);
+                models_code.push_str(&generate_composition(comp)?);
             }
             ModelType::Enum(enum_model) => {
-                output.push_str(&generate_enum(enum_model)?);
+                models_code.push_str(&generate_enum(enum_model)?);
             }
             ModelType::TypeAlias(type_alias) => {
-                output.push_str(&generate_type_alias(type_alias)?);
+                models_code.push_str(&generate_type_alias(type_alias)?);
             }
         }
     }
 
     for request in requests {
-        output.push_str(&generate_request_model(request)?);
+        models_code.push_str(&generate_request_model(request)?);
     }
 
     for response in responses {
-        output.push_str(&generate_response_model(response)?);
+        models_code.push_str(&generate_response_model(response)?);
     }
+
+    // Determine which imports are actually needed
+    let needs_uuid = models_code.contains("Uuid");
+    let needs_datetime = models_code.contains("DateTime<Utc>");
+    let needs_date = models_code.contains("NaiveDate");
+
+    // Build final output with only necessary imports
+    let mut output = String::new();
+    output.push_str("use serde::{Serialize, Deserialize};\n");
+
+    if needs_uuid {
+        output.push_str("use uuid::Uuid;\n");
+    }
+
+    if needs_datetime || needs_date {
+        output.push_str("use chrono::{");
+        let mut chrono_imports = Vec::new();
+        if needs_datetime {
+            chrono_imports.push("DateTime");
+        }
+        if needs_date {
+            chrono_imports.push("NaiveDate");
+        }
+        if needs_datetime {
+            chrono_imports.push("Utc");
+        }
+        output.push_str(&chrono_imports.join(", "));
+        output.push_str("};\n");
+    }
+
+    output.push('\n');
+    output.push_str(&models_code);
 
     Ok(output)
 }
@@ -70,7 +131,13 @@ fn generate_model(model: &Model) -> Result<String> {
         output.push_str(&format!("/// {}\n", model.name));
     }
 
-    output.push_str("#[derive(Debug, Clone, Serialize, Deserialize)]\n");
+    output.push_str(&generate_custom_attrs(&model.custom_attrs));
+
+    // Only add default derive if custom_attrs doesn't already contain a derive directive
+    if !has_custom_derive(&model.custom_attrs) {
+        output.push_str("#[derive(Debug, Clone, Serialize, Deserialize)]\n");
+    }
+
     output.push_str(&format!("pub struct {} {{\n", model.name));
 
     for field in &model.fields {
@@ -161,8 +228,18 @@ fn generate_union(union: &UnionModel) -> Result<String> {
             UnionType::AnyOf => "anyOf",
         }
     ));
-    output.push_str("#[derive(Debug, Clone, Serialize, Deserialize)]\n");
-    output.push_str("#[serde(untagged)]\n");
+    output.push_str(&generate_custom_attrs(&union.custom_attrs));
+
+    // Only add default derive if custom_attrs doesn't already contain a derive
+    if !has_custom_derive(&union.custom_attrs) {
+        output.push_str("#[derive(Debug, Clone, Serialize, Deserialize)]\n");
+    }
+
+    // Only add default serde(untagged) if custom_attrs doesn't already contain a serde attribute
+    if !has_custom_serde(&union.custom_attrs) {
+        output.push_str("#[serde(untagged)]\n");
+    }
+
     output.push_str(&format!("pub enum {} {{\n", union.name));
 
     for variant in &union.variants {
@@ -177,7 +254,13 @@ fn generate_composition(comp: &CompositionModel) -> Result<String> {
     let mut output = String::new();
 
     output.push_str(&format!("/// {} (allOf composition)\n", comp.name));
-    output.push_str("#[derive(Debug, Clone, Serialize, Deserialize)]\n");
+    output.push_str(&generate_custom_attrs(&comp.custom_attrs));
+
+    // Only add default derive if custom_attrs doesn't already contain a derive
+    if !has_custom_derive(&comp.custom_attrs) {
+        output.push_str("#[derive(Debug, Clone, Serialize, Deserialize)]\n");
+    }
+
     output.push_str(&format!("pub struct {} {{\n", comp.name));
 
     for field in &comp.all_fields {
@@ -224,7 +307,13 @@ fn generate_enum(enum_model: &EnumModel) -> Result<String> {
         output.push_str(&format!("/// {}\n", enum_model.name));
     }
 
-    output.push_str("#[derive(Debug, Clone, Serialize, Deserialize)]\n");
+    output.push_str(&generate_custom_attrs(&enum_model.custom_attrs));
+
+    // Only add default derive if custom_attrs doesn't already contain a derive
+    if !has_custom_derive(&enum_model.custom_attrs) {
+        output.push_str("#[derive(Debug, Clone, Serialize, Deserialize)]\n");
+    }
+
     output.push_str(&format!("pub enum {} {{\n", enum_model.name));
 
     for (i, variant) in enum_model.variants.iter().enumerate() {
@@ -268,6 +357,7 @@ fn generate_type_alias(type_alias: &TypeAliasModel) -> Result<String> {
         output.push_str(&format!("/// {}\n", type_alias.name));
     }
 
+    output.push_str(&generate_custom_attrs(&type_alias.custom_attrs));
     output.push_str(&format!(
         "pub type {} = {};\n\n",
         type_alias.name, type_alias.target_type
