@@ -37,6 +37,13 @@ pub struct Field {
     pub is_nullable: bool,
 }
 
+impl Field {
+    /// Returns true if this field should be flattened (for additionalProperties)
+    pub fn should_flatten(&self) -> bool {
+        self.name == "additional_properties"
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UnionModel {
     pub name: String,

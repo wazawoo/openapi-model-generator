@@ -21,6 +21,42 @@ fn is_reserved_word(string_to_check: &str) -> bool {
     RUST_RESERVED_KEYWORDS.contains(&string_to_check.to_lowercase().as_str())
 }
 
+fn to_snake_case(name: &str) -> String {
+    let cleaned: String = name
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
+        .collect();
+
+    let mut snake = String::new();
+
+    for (i, c) in cleaned.chars().enumerate() {
+        if c.is_ascii_uppercase() {
+            if i != 0 {
+                snake.push('_');
+            }
+            snake.push(c.to_ascii_lowercase());
+        } else {
+            snake.push(c);
+        }
+    }
+    snake = snake.replace("__", "_");
+
+    if snake == "self" {
+        snake.push('_');
+    }
+
+    if snake
+        .chars()
+        .next()
+        .map(|c| c.is_ascii_digit())
+        .unwrap_or(false)
+    {
+        snake = format!("_{snake}");
+    }
+
+    snake
+}
+
 /// Checks if custom attributes contain a derive attribute
 fn has_custom_derive(custom_attrs: &Option<Vec<String>>) -> bool {
     if let Some(attrs) = custom_attrs {
@@ -152,7 +188,7 @@ fn generate_model(model: &Model) -> Result<String> {
             _ => &field.field_type,
         };
 
-        let mut lowercased_name = field.name.to_lowercase();
+        let mut lowercased_name = to_snake_case(field.name.as_str());
         if is_reserved_word(&lowercased_name) {
             lowercased_name = format!("r#{lowercased_name}")
         }
@@ -160,6 +196,10 @@ fn generate_model(model: &Model) -> Result<String> {
         // Only add serde rename if the Rust field name differs from the original field name
         if lowercased_name != field.name {
             output.push_str(&format!("    #[serde(rename = \"{}\")]\n", field.name));
+        }
+
+        if field.should_flatten() {
+            output.push_str("    #[serde(flatten)]\n");
         }
 
         if field.is_required && !field.is_nullable {
@@ -275,7 +315,7 @@ fn generate_composition(comp: &CompositionModel) -> Result<String> {
             _ => &field.field_type,
         };
 
-        let mut lowercased_name = field.name.to_lowercase();
+        let mut lowercased_name = to_snake_case(field.name.as_str());
         if is_reserved_word(&lowercased_name) {
             lowercased_name = format!("r#{lowercased_name}");
         }
@@ -390,7 +430,7 @@ pub fn generate_rust_code(models: &[Model]) -> Result<String> {
                 _ => &field.field_type,
             };
 
-            let mut lowercased_name = field.name.to_lowercase();
+            let mut lowercased_name = to_snake_case(field.name.as_str());
             if is_reserved_word(&lowercased_name) {
                 lowercased_name = format!("r#{lowercased_name}")
             }

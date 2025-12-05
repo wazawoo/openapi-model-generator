@@ -234,7 +234,6 @@ fn parse_schema_to_model_type(
     match schema {
         ReferenceOr::Reference { .. } => Ok(Vec::new()),
         ReferenceOr::Item(schema) => {
-            // Проверяем наличие x-rust-type - если есть, генерируем type alias
             if let Some(rust_type) = schema.schema_data.extensions.get("x-rust-type") {
                 if let Some(type_str) = rust_type.as_str() {
                     return Ok(vec![ModelType::TypeAlias(TypeAliasModel {
@@ -249,8 +248,36 @@ fn parse_schema_to_model_type(
             match &schema.schema_kind {
                 // regular objects
                 SchemaKind::Type(Type::Object(obj)) => {
+                    // Special case: object with only additionalProperties (no regular properties)
+                    if obj.properties.is_empty() && obj.additional_properties.is_some() {
+                        let hashmap_type = match &obj.additional_properties {
+                            Some(additional_props) => match additional_props {
+                                openapiv3::AdditionalProperties::Any(_) => {
+                                    "std::collections::HashMap<String, serde_json::Value>"
+                                        .to_string()
+                                }
+                                openapiv3::AdditionalProperties::Schema(schema_ref) => {
+                                    let (inner_type, _) =
+                                        extract_type_and_format(schema_ref, all_schemas)?;
+                                    format!("std::collections::HashMap<String, {inner_type}>")
+                                }
+                            },
+                            None => {
+                                "std::collections::HashMap<String, serde_json::Value>".to_string()
+                            }
+                        };
+                        return Ok(vec![ModelType::TypeAlias(TypeAliasModel {
+                            name: to_pascal_case(name),
+                            target_type: hashmap_type,
+                            description: schema.schema_data.description.clone(),
+                            custom_attrs: extract_custom_attrs(schema),
+                        })]);
+                    }
+
                     let mut fields = Vec::new();
                     let mut inline_models = Vec::new();
+
+                    // Process regular properties
                     for (field_name, field_schema) in &obj.properties {
                         let (field_info, inline_model) = match field_schema {
                             ReferenceOr::Item(boxed_schema) => extract_field_info(
@@ -278,8 +305,15 @@ fn parse_schema_to_model_type(
                             is_nullable: field_info.is_nullable,
                         });
                     }
+
                     let mut models = inline_models;
-                    if !fields.is_empty() {
+                    if obj.properties.is_empty() && obj.additional_properties.is_none() {
+                        models.push(ModelType::Struct(Model {
+                            name: to_pascal_case(name),
+                            fields: vec![], // Пустая структура
+                            custom_attrs: extract_custom_attrs(schema),
+                        }));
+                    } else if !fields.is_empty() {
                         models.push(ModelType::Struct(Model {
                             name: to_pascal_case(name),
                             fields,
