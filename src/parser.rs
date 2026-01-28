@@ -11,6 +11,9 @@ use openapiv3::{
 };
 use std::collections::HashSet;
 
+const X_RUST_TYPE: &str = "x-rust-type";
+const X_RUST_ATTRS: &str = "x-rust-attrs";
+
 /// Information about a field extracted from OpenAPI schema
 #[derive(Debug)]
 struct FieldInfo {
@@ -40,7 +43,7 @@ fn extract_custom_attrs(schema: &Schema) -> Option<Vec<String>> {
     schema
         .schema_data
         .extensions
-        .get("x-rust-attrs")
+        .get(X_RUST_ATTRS)
         .and_then(|value| {
             if let Some(arr) = value.as_array() {
                 let attrs: Vec<String> = arr
@@ -91,7 +94,7 @@ pub fn parse_openapi(
             }
         }
 
-        // Parse components/requestBodies - извлекаем схемы и создаем модели
+        // Parse components/requestBodies - extract schemas and create models
         for (name, request_body_ref) in &components.request_bodies {
             if let ReferenceOr::Item(request_body) = request_body_ref {
                 for media_type in request_body.content.values() {
@@ -234,7 +237,7 @@ fn parse_schema_to_model_type(
     match schema {
         ReferenceOr::Reference { .. } => Ok(Vec::new()),
         ReferenceOr::Item(schema) => {
-            if let Some(rust_type) = schema.schema_data.extensions.get("x-rust-type") {
+            if let Some(rust_type) = schema.schema_data.extensions.get(X_RUST_TYPE) {
                 if let Some(type_str) = rust_type.as_str() {
                     return Ok(vec![ModelType::TypeAlias(TypeAliasModel {
                         name: to_pascal_case(name),
@@ -310,7 +313,7 @@ fn parse_schema_to_model_type(
                     if obj.properties.is_empty() && obj.additional_properties.is_none() {
                         models.push(ModelType::Struct(Model {
                             name: to_pascal_case(name),
-                            fields: vec![], // Пустая структура
+                            fields: vec![], // Empty struct
                             custom_attrs: extract_custom_attrs(schema),
                         }));
                     } else if !fields.is_empty() {
@@ -509,6 +512,12 @@ fn extract_field_info(
         }
 
         ReferenceOr::Item(schema) => {
+            if let Some(rust_type) = schema.schema_data.extensions.get(X_RUST_TYPE) {
+                if let Some(type_str) = rust_type.as_str() {
+                    field_type = type_str.to_string();
+                }
+            }
+
             let is_nullable = schema.schema_data.nullable;
 
             let maybe_enum = match &schema.schema_kind {
@@ -567,7 +576,7 @@ fn resolve_all_of_fields(
         }
     }
 
-    // Теперь собираем поля из всех схем
+    // Now collect fields from all schemas
     for schema_ref in all_of {
         match schema_ref {
             ReferenceOr::Reference { reference } => {
@@ -588,7 +597,7 @@ fn resolve_all_of_fields(
         }
     }
 
-    // Обновляем is_required для полей на основе объединенного множества required
+    // Update is_required for fields based on the merged required set
     for field in &mut all_fields {
         if all_required_fields.contains(&field.name) {
             field.is_required = true;
@@ -845,15 +854,15 @@ mod tests {
         let (models, requests, _responses) =
             parse_openapi(&openapi_spec).expect("Failed to parse OpenAPI spec");
 
-        // 1. Проверяем, что модель запроса была создана
+        // 1. Verify that request model was created
         assert_eq!(requests.len(), 1);
         let request_model = &requests[0];
         assert_eq!(request_model.name, "CreateItemRequest");
 
-        // 2. Проверяем, что схема запроса ссылается на НОВУЮ модель, а не на Value
+        // 2. Verify that request schema references a NEW model, not Value
         assert_eq!(request_model.schema, "CreateItemRequestBody");
 
-        // 3. Проверяем, что сама модель для тела запроса была сгенерирована
+        // 3. Verify that the request body model itself was generated
         let inline_model = models.iter().find(|m| m.name() == "CreateItemRequestBody");
         assert!(
             inline_model.is_some(),
@@ -913,15 +922,15 @@ mod tests {
         let (models, requests, _responses) =
             parse_openapi(&openapi_spec).expect("Failed to parse OpenAPI spec");
 
-        // Проверяем, что модель запроса была создана
+        // Verify that request model was created
         assert_eq!(requests.len(), 1);
         let request_model = &requests[0];
         assert_eq!(request_model.name, "CreateItemRequest");
 
-        // Проверяем, что схема ссылается на существующую модель
+        // Verify that schema references an existing model
         assert_eq!(request_model.schema, "ItemData");
 
-        // Проверяем, что сама модель ItemData существует в списке моделей
+        // Verify that ItemData model exists in the models list
         assert!(models.iter().any(|m| m.name() == "ItemData"));
     }
 
@@ -944,13 +953,13 @@ mod tests {
         let (_models, requests, _responses) =
             parse_openapi(&openapi_spec).expect("Failed to parse OpenAPI spec");
 
-        // Убеждаемся, что моделей запросов не создано
+        // Verify that no request models were created
         assert!(requests.is_empty());
     }
 
     #[test]
     fn test_nullable_reference_field() {
-        // Тест проверяет что nullable корректно читается из целевой схемы при использовании $ref
+        // Test verifies that nullable is correctly read from the target schema when using $ref
         let openapi_spec: OpenAPI = serde_json::from_value(json!({
             "openapi": "3.0.0",
             "info": { "title": "Test API", "version": "1.0.0" },
@@ -979,7 +988,7 @@ mod tests {
 
         let (models, _, _) = parse_openapi(&openapi_spec).expect("Failed to parse OpenAPI spec");
 
-        // Находим модель Post
+        // Find Post model
         let post_model = models.iter().find(|m| m.name() == "Post");
         assert!(post_model.is_some(), "Expected Post model to be generated");
 
@@ -987,8 +996,8 @@ mod tests {
             let author_field = post.fields.iter().find(|f| f.name == "author");
             assert!(author_field.is_some(), "Expected author field");
 
-            // Проверяем что nullable правильно обработан для ссылочного типа
-            // (nullable берется из целевой схемы NullableUser)
+            // Verify that nullable is correctly handled for reference type
+            // (nullable is taken from the target schema NullableUser)
             let author = author_field.unwrap();
             assert!(
                 author.is_nullable,
@@ -1035,7 +1044,7 @@ mod tests {
 
         let (models, _, _) = parse_openapi(&openapi_spec).expect("Failed to parse OpenAPI spec");
 
-        // Находим модель Person
+        // Find Person model
         let person_model = models.iter().find(|m| m.name() == "Person");
         assert!(
             person_model.is_some(),
@@ -1043,7 +1052,7 @@ mod tests {
         );
 
         if let Some(ModelType::Composition(person)) = person_model {
-            // Проверяем что id (из BaseEntity) обязательное
+            // Verify that id (from BaseEntity) is required
             let id_field = person.all_fields.iter().find(|f| f.name == "id");
             assert!(id_field.is_some(), "Expected id field");
             assert!(
@@ -1051,7 +1060,7 @@ mod tests {
                 "Expected id to be required from BaseEntity"
             );
 
-            // Проверяем что name (из второго объекта) обязательное
+            // Verify that name (from second object) is required
             let name_field = person.all_fields.iter().find(|f| f.name == "name");
             assert!(name_field.is_some(), "Expected name field");
             assert!(
@@ -1059,7 +1068,7 @@ mod tests {
                 "Expected name to be required from inline object"
             );
 
-            // Проверяем что created и age не обязательные
+            // Verify that created and age are not required
             let created_field = person.all_fields.iter().find(|f| f.name == "created");
             assert!(created_field.is_some(), "Expected created field");
             assert!(
@@ -1102,7 +1111,7 @@ mod tests {
 
         let (models, _, _) = parse_openapi(&openapi_spec).expect("Failed to parse OpenAPI spec");
 
-        // Проверяем что создан TypeAlias, а не Struct
+        // Verify that TypeAlias is created, not Struct
         let user_model = models.iter().find(|m| m.name() == "User");
         assert!(user_model.is_some(), "Expected User model");
 
@@ -1142,7 +1151,7 @@ mod tests {
         let status_model = models.iter().find(|m| m.name() == "Status");
         assert!(status_model.is_some(), "Expected Status model");
 
-        // Должен быть TypeAlias, не Enum
+        // Should be TypeAlias, not Enum
         assert!(
             matches!(status_model.unwrap(), ModelType::TypeAlias(_)),
             "Expected TypeAlias for enum with x-rust-type"
@@ -1174,7 +1183,7 @@ mod tests {
         let payment_model = models.iter().find(|m| m.name() == "Payment");
         assert!(payment_model.is_some(), "Expected Payment model");
 
-        // Должен быть TypeAlias, не Union
+        // Should be TypeAlias, not Union
         match payment_model.unwrap() {
             ModelType::TypeAlias(alias) => {
                 assert_eq!(alias.target_type, "payments::Payment");
@@ -1283,7 +1292,7 @@ mod tests {
         let user_model = models.iter().find(|m| m.name() == "User");
         assert!(user_model.is_some(), "Expected User model");
 
-        // Должен быть TypeAlias с атрибутами
+        // Should be TypeAlias with attributes
         match user_model.unwrap() {
             ModelType::TypeAlias(alias) => {
                 assert_eq!(alias.target_type, "crate::domain::User");
@@ -1323,8 +1332,269 @@ mod tests {
 
         match user_model.unwrap() {
             ModelType::Struct(model) => {
-                // Пустой массив должен результировать в None
+                // Empty array should result in None
                 assert!(model.custom_attrs.is_none());
+            }
+            _ => panic!("Expected Struct"),
+        }
+    }
+
+    #[test]
+    fn test_x_rust_type_on_string_property() {
+        let openapi_spec: OpenAPI = serde_json::from_value(json!({
+            "openapi": "3.0.0",
+            "info": { "title": "Test API", "version": "1.0.0" },
+            "paths": {},
+            "components": {
+                "schemas": {
+                    "Document": {
+                        "type": "object",
+                        "description": "Document with custom version type",
+                        "properties": {
+                            "title": { "type": "string", "description": "Document title." },
+                            "content": { "type": "string", "description": "Document content." },
+                            "version": {
+                                "type": "string",
+                                "format": "semver",
+                                "x-rust-type": "semver::Version",
+                                "description": "Semantic version."
+                            }
+                        },
+                        "required": ["title", "content", "version"]
+                    }
+                }
+            }
+        }))
+        .expect("Failed to deserialize OpenAPI spec");
+
+        let (models, _, _) = parse_openapi(&openapi_spec).expect("Failed to parse OpenAPI spec");
+
+        let document_model = models.iter().find(|m| m.name() == "Document");
+        assert!(document_model.is_some(), "Expected Document model");
+
+        match document_model.unwrap() {
+            ModelType::Struct(model) => {
+                // Verify that version field has custom type
+                let version_field = model.fields.iter().find(|f| f.name == "version");
+                assert!(version_field.is_some(), "Expected version field");
+                assert_eq!(version_field.unwrap().field_type, "semver::Version");
+
+                // Verify other fields have regular types
+                let title_field = model.fields.iter().find(|f| f.name == "title");
+                assert_eq!(title_field.unwrap().field_type, "String");
+
+                let content_field = model.fields.iter().find(|f| f.name == "content");
+                assert_eq!(content_field.unwrap().field_type, "String");
+            }
+            _ => panic!("Expected Struct"),
+        }
+    }
+
+    #[test]
+    fn test_x_rust_type_on_integer_property() {
+        let openapi_spec: OpenAPI = serde_json::from_value(json!({
+            "openapi": "3.0.0",
+            "info": { "title": "Test API", "version": "1.0.0" },
+            "paths": {},
+            "components": {
+                "schemas": {
+                    "Configuration": {
+                        "type": "object",
+                        "description": "Configuration with custom duration type",
+                        "properties": {
+                            "timeout": {
+                                "type": "integer",
+                                "x-rust-type": "std::time::Duration",
+                                "description": "Timeout duration."
+                            },
+                            "retries": { "type": "integer" }
+                        },
+                        "required": ["timeout", "retries"]
+                    }
+                }
+            }
+        }))
+        .expect("Failed to deserialize OpenAPI spec");
+
+        let (models, _, _) = parse_openapi(&openapi_spec).expect("Failed to parse OpenAPI spec");
+
+        let config_model = models.iter().find(|m| m.name() == "Configuration");
+        assert!(config_model.is_some(), "Expected Configuration model");
+
+        match config_model.unwrap() {
+            ModelType::Struct(model) => {
+                // Verify that timeout field has custom type
+                let timeout_field = model.fields.iter().find(|f| f.name == "timeout");
+                assert!(timeout_field.is_some(), "Expected timeout field");
+                assert_eq!(timeout_field.unwrap().field_type, "std::time::Duration");
+
+                // Verify other field has regular i64 type
+                let retries_field = model.fields.iter().find(|f| f.name == "retries");
+                assert_eq!(retries_field.unwrap().field_type, "i64");
+            }
+            _ => panic!("Expected Struct"),
+        }
+    }
+
+    #[test]
+    fn test_x_rust_type_on_number_property() {
+        let openapi_spec: OpenAPI = serde_json::from_value(json!({
+            "openapi": "3.0.0",
+            "info": { "title": "Test API", "version": "1.0.0" },
+            "paths": {},
+            "components": {
+                "schemas": {
+                    "Product": {
+                        "type": "object",
+                        "description": "Product with custom decimal type",
+                        "properties": {
+                            "price": {
+                                "type": "number",
+                                "x-rust-type": "decimal::Decimal",
+                                "description": "Product price."
+                            },
+                            "quantity": { "type": "number" }
+                        },
+                        "required": ["price", "quantity"]
+                    }
+                }
+            }
+        }))
+        .expect("Failed to deserialize OpenAPI spec");
+
+        let (models, _, _) = parse_openapi(&openapi_spec).expect("Failed to parse OpenAPI spec");
+
+        let product_model = models.iter().find(|m| m.name() == "Product");
+        assert!(product_model.is_some(), "Expected Product model");
+
+        match product_model.unwrap() {
+            ModelType::Struct(model) => {
+                // Verify that price field has custom type
+                let price_field = model.fields.iter().find(|f| f.name == "price");
+                assert!(price_field.is_some(), "Expected price field");
+                assert_eq!(price_field.unwrap().field_type, "decimal::Decimal");
+
+                // Verify other field has regular f64 type
+                let quantity_field = model.fields.iter().find(|f| f.name == "quantity");
+                assert_eq!(quantity_field.unwrap().field_type, "f64");
+            }
+            _ => panic!("Expected Struct"),
+        }
+    }
+
+    #[test]
+    fn test_x_rust_type_on_nullable_property() {
+        let openapi_spec: OpenAPI = serde_json::from_value(json!({
+            "openapi": "3.0.0",
+            "info": { "title": "Test API", "version": "1.0.0" },
+            "paths": {},
+            "components": {
+                "schemas": {
+                    "Settings": {
+                        "type": "object",
+                        "description": "Settings with nullable custom type",
+                        "properties": {
+                            "settings": {
+                                "type": "string",
+                                "x-rust-type": "serde_json::Value",
+                                "nullable": true,
+                                "description": "Optional settings."
+                            }
+                        }
+                    }
+                }
+            }
+        }))
+        .expect("Failed to deserialize OpenAPI spec");
+
+        let (models, _, _) = parse_openapi(&openapi_spec).expect("Failed to parse OpenAPI spec");
+
+        let settings_model = models.iter().find(|m| m.name() == "Settings");
+        assert!(settings_model.is_some(), "Expected Settings model");
+
+        match settings_model.unwrap() {
+            ModelType::Struct(model) => {
+                let settings_field = model.fields.iter().find(|f| f.name == "settings");
+                assert!(settings_field.is_some(), "Expected settings field");
+
+                let field = settings_field.unwrap();
+                assert_eq!(field.field_type, "serde_json::Value");
+                assert!(field.is_nullable, "Expected field to be nullable");
+            }
+            _ => panic!("Expected Struct"),
+        }
+    }
+
+    #[test]
+    fn test_multiple_properties_with_x_rust_type() {
+        let openapi_spec: OpenAPI = serde_json::from_value(json!({
+            "openapi": "3.0.0",
+            "info": { "title": "Test API", "version": "1.0.0" },
+            "paths": {},
+            "components": {
+                "schemas": {
+                    "ComplexModel": {
+                        "type": "object",
+                        "description": "Model with multiple custom-typed properties",
+                        "properties": {
+                            "id": {
+                                "type": "string",
+                                "format": "uuid",
+                                "x-rust-type": "uuid::Uuid"
+                            },
+                            "price": {
+                                "type": "number",
+                                "x-rust-type": "decimal::Decimal"
+                            },
+                            "timeout": {
+                                "type": "integer",
+                                "x-rust-type": "std::time::Duration"
+                            },
+                            "regular_field": { "type": "string" }
+                        },
+                        "required": ["id", "price", "timeout"]
+                    }
+                }
+            }
+        }))
+        .expect("Failed to deserialize OpenAPI spec");
+
+        let (models, _, _) = parse_openapi(&openapi_spec).expect("Failed to parse OpenAPI spec");
+
+        let model = models.iter().find(|m| m.name() == "ComplexModel");
+        assert!(model.is_some(), "Expected ComplexModel model");
+
+        match model.unwrap() {
+            ModelType::Struct(struct_model) => {
+                // Verify all custom types
+                let id_field = struct_model.fields.iter().find(|f| f.name == "id");
+                assert_eq!(id_field.unwrap().field_type, "uuid::Uuid");
+
+                let price_field = struct_model.fields.iter().find(|f| f.name == "price");
+                assert_eq!(price_field.unwrap().field_type, "decimal::Decimal");
+
+                let timeout_field = struct_model.fields.iter().find(|f| f.name == "timeout");
+                assert_eq!(timeout_field.unwrap().field_type, "std::time::Duration");
+
+                // Verify regular field
+                let regular_field = struct_model
+                    .fields
+                    .iter()
+                    .find(|f| f.name == "regular_field");
+                assert_eq!(regular_field.unwrap().field_type, "String");
+
+                // Verify nullable flags for required/optional fields
+                assert!(!id_field.unwrap().is_nullable, "id should not be nullable");
+                assert!(
+                    !price_field.unwrap().is_nullable,
+                    "price should not be nullable"
+                );
+                assert!(
+                    !timeout_field.unwrap().is_nullable,
+                    "timeout should not be nullable"
+                );
+                // regular_field is not in required, but generator doesn't mark it as nullable
+                // (this is expected behavior - nullable only for explicitly nullable fields)
             }
             _ => panic!("Expected Struct"),
         }
