@@ -1,3 +1,5 @@
+use std::sync::OnceLock;
+
 use crate::{
     models::{
         CompositionModel, EnumModel, Model, ModelType, RequestModel, ResponseModel, TypeAliasModel,
@@ -5,6 +7,24 @@ use crate::{
     },
     Result,
 };
+
+static HDR: OnceLock<String> = OnceLock::new();
+
+fn create_header() -> String {
+    HDR.get_or_init(|| {
+        format!(
+            r#"
+//!
+//! Generated from an OAS specification by {}(v{})
+//!
+
+"#,
+            option_env!("CARGO_PKG_NAME").unwrap_or("openapi-model-generator"),
+            option_env!("CARGO_PKG_VERSION").unwrap_or("unknown")
+        )
+    })
+    .clone()
+}
 
 const RUST_RESERVED_KEYWORDS: &[&str] = &[
     "as", "break", "const", "continue", "crate", "else", "enum", "extern", "false", "fn", "for",
@@ -131,7 +151,7 @@ pub fn generate_models(
     let needs_date = models_code.contains("NaiveDate");
 
     // Build final output with only necessary imports
-    let mut output = String::new();
+    let mut output = create_header();
     output.push_str("use serde::{Serialize, Deserialize};\n");
 
     if needs_uuid {
@@ -407,7 +427,7 @@ fn generate_type_alias(type_alias: &TypeAliasModel) -> Result<String> {
 }
 
 pub fn generate_rust_code(models: &[Model]) -> Result<String> {
-    let mut code = String::new();
+    let mut code = create_header();
 
     code.push_str("use serde::{Serialize, Deserialize};\n");
     code.push_str("use uuid::Uuid;\n");
@@ -456,7 +476,7 @@ pub fn generate_rust_code(models: &[Model]) -> Result<String> {
 }
 
 pub fn generate_lib() -> Result<String> {
-    let mut code = String::new();
+    let mut code = create_header();
     code.push_str("pub mod models;\n");
 
     Ok(code)
