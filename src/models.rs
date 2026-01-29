@@ -26,6 +26,7 @@ pub struct Model {
     pub name: String,
     pub fields: Vec<Field>,
     pub custom_attrs: Option<Vec<String>>,
+    pub description: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -35,6 +36,7 @@ pub struct Field {
     pub format: String,
     pub is_required: bool,
     pub is_nullable: bool,
+    pub description: Option<String>,
 }
 
 impl Field {

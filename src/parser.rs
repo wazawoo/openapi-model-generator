@@ -20,11 +20,12 @@ struct FieldInfo {
     field_type: String,
     format: String,
     is_nullable: bool,
+    description: Option<String>,
 }
 
 /// Converts camelCase to PascalCase
 /// Example: "createRole" -> "CreateRole", "listRoles" -> "ListRoles", "listRoles-Input" -> "ListRolesInput"
-fn to_pascal_case(input: &str) -> String {
+pub(crate) fn to_pascal_case(input: &str) -> String {
     input
         .split(&['-', '_'][..])
         .filter(|s| !s.is_empty())
@@ -306,6 +307,7 @@ fn parse_schema_to_model_type(
                             format: field_info.format,
                             is_required,
                             is_nullable: field_info.is_nullable,
+                            description: field_info.description,
                         });
                     }
 
@@ -315,12 +317,14 @@ fn parse_schema_to_model_type(
                             name: to_pascal_case(name),
                             fields: vec![], // Empty struct
                             custom_attrs: extract_custom_attrs(schema),
+                            description: schema.schema_data.description.clone(),
                         }));
                     } else if !fields.is_empty() {
                         models.push(ModelType::Struct(Model {
                             name: to_pascal_case(name),
                             fields,
                             custom_attrs: extract_custom_attrs(schema),
+                            description: schema.schema_data.description.clone(),
                         }));
                     }
                     Ok(models)
@@ -494,7 +498,7 @@ fn extract_field_info(
 ) -> Result<(FieldInfo, Option<ModelType>)> {
     let (mut field_type, format) = extract_type_and_format(schema, all_schemas)?;
 
-    let (is_nullable, en) = match schema {
+    let (is_nullable, en, description) = match schema {
         ReferenceOr::Reference { reference } => {
             let is_nullable =
                 if let Some(type_name) = reference.strip_prefix("#/components/schemas/") {
@@ -508,7 +512,7 @@ fn extract_field_info(
                 } else {
                     false
                 };
-            (is_nullable, None)
+            (is_nullable, None, None)
         }
 
         ReferenceOr::Item(schema) => {
@@ -517,6 +521,8 @@ fn extract_field_info(
                     field_type = type_str.to_string();
                 }
             }
+
+            let description = schema.schema_data.description.clone();
 
             let is_nullable = schema.schema_data.nullable;
 
@@ -538,7 +544,7 @@ fn extract_field_info(
                 }
                 _ => None,
             };
-            (is_nullable, maybe_enum)
+            (is_nullable, maybe_enum, description)
         }
     };
 
@@ -547,6 +553,7 @@ fn extract_field_info(
             field_type,
             format,
             is_nullable,
+            description,
         },
         en,
     ))
@@ -758,6 +765,7 @@ fn extract_fields_from_schema(
                             format: field_info.format,
                             is_required,
                             is_nullable,
+                            description: field_info.description,
                         });
                         if let Some(inline_model) = inline_model {
                             match &inline_model {

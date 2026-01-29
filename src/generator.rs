@@ -41,15 +41,20 @@ fn is_reserved_word(string_to_check: &str) -> bool {
     RUST_RESERVED_KEYWORDS.contains(&string_to_check.to_lowercase().as_str())
 }
 
-fn generate_description_docs(description: &Option<String>, fallback_str: &str) -> String {
+fn generate_description_docs(
+    description: &Option<String>,
+    fallback_str: &str,
+    indent: &str,
+) -> String {
     let mut output = String::new();
     if let Some(desc) = description {
         for line in desc.lines() {
-            output.push_str(&format!("/// {}\n", line.trim()));
+            output.push_str(&format!("{}/// {}\n", indent, line.trim()));
         }
-    } else {
-        output.push_str(&format!("/// {}\n", fallback_str));
+    } else if !fallback_str.is_empty() {
+        output.push_str(&format!("{}/// {}\n", indent, fallback_str));
     }
+
     output
 }
 
@@ -195,9 +200,11 @@ pub fn generate_models(
 fn generate_model(model: &Model) -> Result<String> {
     let mut output = String::new();
 
-    if !model.name.is_empty() {
-        output.push_str(&format!("/// {}\n", model.name));
-    }
+    output.push_str(&generate_description_docs(
+        &model.description,
+        &model.name,
+        "",
+    ));
 
     output.push_str(&generate_custom_attrs(&model.custom_attrs));
 
@@ -224,6 +231,9 @@ fn generate_model(model: &Model) -> Result<String> {
         if is_reserved_word(&lowercased_name) {
             lowercased_name = format!("r#{lowercased_name}")
         }
+
+        // Add field description if present
+        output.push_str(&generate_description_docs(&field.description, "", "    "));
 
         // Only add serde rename if the Rust field name differs from the original field name
         if lowercased_name != field.name {
@@ -273,13 +283,11 @@ fn generate_response_model(response: &ResponseModel) -> Result<String> {
 
     let mut output = String::new();
 
-    if let Some(desc) = &response.description {
-        for line in desc.lines() {
-            output.push_str(&format!("/// {}\n", line.trim()));
-        }
-    } else {
-        output.push_str(&format!("/// {type_name}\n"));
-    }
+    output.push_str(&generate_description_docs(
+        &response.description,
+        &type_name,
+        "",
+    ));
 
     output.push_str("#[derive(Debug, Clone, Deserialize)]\n");
     output.push_str(&format!("pub struct {type_name} {{\n"));
@@ -376,6 +384,7 @@ fn generate_enum(enum_model: &EnumModel) -> Result<String> {
     output.push_str(&generate_description_docs(
         &enum_model.description,
         &enum_model.name,
+        "",
     ));
 
     output.push_str(&generate_custom_attrs(&enum_model.custom_attrs));
@@ -390,10 +399,7 @@ fn generate_enum(enum_model: &EnumModel) -> Result<String> {
     for (i, variant) in enum_model.variants.iter().enumerate() {
         let original = variant.clone();
 
-        let mut chars = variant.chars();
-        let first_char = chars.next().unwrap().to_ascii_uppercase();
-        let rest: String = chars.collect();
-        let mut rust_name = format!("{first_char}{rest}");
+        let mut rust_name = crate::parser::to_pascal_case(variant);
 
         let serde_rename = if is_reserved_word(&rust_name) {
             rust_name.push_str("Value");
@@ -425,6 +431,7 @@ fn generate_type_alias(type_alias: &TypeAliasModel) -> Result<String> {
     output.push_str(&generate_description_docs(
         &type_alias.description,
         &type_alias.name,
+        "",
     ));
 
     output.push_str(&generate_custom_attrs(&type_alias.custom_attrs));
