@@ -711,11 +711,9 @@ fn extract_field_info(
                         let models =
                             parse_schema_to_model_type(&struct_name, &wrapped_schema, all_schemas)?;
 
-                        let struct_model = models
+                        models
                             .into_iter()
-                            .find(|m| matches!(m, ModelType::Struct(_)));
-
-                        struct_model
+                            .find(|m| matches!(m, ModelType::Struct(_)))
                     }
                 }
                 _ => None,
