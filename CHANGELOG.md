@@ -5,6 +5,34 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] - 2025-02-02
+
+### Added
+- **x-rust-type on Properties**: Support for `x-rust-type` extension on individual properties, not just on schemas. This allows using custom Rust types for specific fields while keeping others auto-generated.
+
+- **Enhanced Description Formatting**: Multi-line descriptions are now properly formatted as separate doc comment lines instead of being on a single line. This improves readability for complex schemas with detailed documentation.
+
+- **Block File Comments**: Added module-level documentation comments at the top of generated files indicating the generator name and version.
+
+### Fixed
+- **allOf Field Deduplication**: Resolved issue where `allOf` compositions with overlapping field names generated duplicate struct fields. The parser now:
+  - Uses `HashMap` for field deduplication instead of `Vec`
+  - Preserves concrete types (e.g., `i64`, `String`) over generic `serde_json::Value`
+  - Prevents Rust compilation errors from duplicate struct fields
+  - Correctly handles field type overriding when schemas have the same field name
+
+- **Array with oneOf Items**: Full support for arrays where items use `oneOf` composition. The generator now:
+  - Creates union enums for array items with multiple types
+  - Generates `Vec<UnionEnum>` type aliases for such arrays
+  - Properly handles complex array schemas with nested compositions
+
+- **Enum Variant Naming**: Enum variants are now automatically converted to PascalCase, preventing Rust compiler warnings about non-standard naming.
+
+### Changed
+- **Code Quality**: Removed all Russian comments from source code for better international collaboration and maintainability.
+
+- **Clippy Compliance**: Fixed `let_and_return` warning in `src/parser.rs` by returning expression directly instead of using unnecessary let binding.
+
 ## [0.4.1] - 2025-12-05
 
 ### Fixed

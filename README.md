@@ -19,6 +19,13 @@ A Rust library and CLI tool for generating Rust models from OpenAPI specificatio
   - `x-rust-type` extension - Replace generated models with custom Rust types (type aliases)
   - `x-rust-attrs` extension - Add custom Rust attributes to generated types
   - Works with any schema type (object, enum, oneOf, etc.)
+  - Support for `x-rust-type` on individual properties
+- **Smart Field Deduplication**: Automatically resolves duplicate field names in `allOf` compositions
+  - Preserves concrete types (e.g., `i64`, `String`) over generic `serde_json::Value`
+  - Prevents compilation errors from duplicate struct fields
+- **Array Composition Support**: Full support for arrays with complex item types
+  - Arrays with `oneOf` items → `Vec<UnionEnum>`
+  - Arrays with any schema composition pattern
 - **Request Bodies Support**: Full parsing and model generation from `components.requestBodies`
 - **Smart Code Generation**:
   - Required vs optional field detection (`Option<T>` for nullable fields)
@@ -40,7 +47,7 @@ Add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-openapi-model-generator = "0.4.1"
+openapi-model-generator = "0.5.0"
 ```
 
 ## Usage
@@ -236,6 +243,16 @@ This allows you to:
 - Apply conditional compilation attributes (cfg, cfg_attr)
 - Use custom validation macros
 - Works together with `x-rust-type` extension
+
+## Recent Updates (v0.5.0)
+
+- **Added**: Support for `x-rust-type` extension on individual properties
+- **Improved**: Multi-line description formatting for better documentation
+- **Fixed**: Duplicate field names in `allOf` compositions with different types
+- **Added**: Support for arrays with `oneOf` items
+- **Improved**: Enum variant names automatically converted to PascalCase
+- **Added**: Module-level documentation comments in generated files
+- **Improved**: Code quality - removed non-English comments, fixed clippy warnings
 
 ## Development
 
