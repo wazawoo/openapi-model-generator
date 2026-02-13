@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.1] - 2026-02-13
+
+### Fixed
+- **Smart Import Tracking**: Fixed import generation to use bitflags for accurate type tracking instead of string-based detection. This ensures imports (uuid, chrono, serde_json::Value) are only included when actually needed in generated code.
+- **Enhanced allOf Type Replacement**: Improved the resolver's ability to replace serde_json::Value with concrete types in allOf compositions. Now handles:
+  - `Option<serde_json::Value>`
+  - `HashMap<String, serde_json::Value>`
+  - `Option<HashMap<String, serde_json::Value>>`
+  - `Vec<serde_json::Value>`
+  - `Option<Vec<serde_json::Value>>`
+
+### Changed
+- Removed unused `tokio-test` dependency
+- Added `bitflags` dependency for efficient flag-based type tracking
+
 ## [0.5.0] - 2025-02-02
 
 ### Added
