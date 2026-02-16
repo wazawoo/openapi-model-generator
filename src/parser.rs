@@ -10,7 +10,7 @@ use openapiv3::{
     AdditionalProperties, OpenAPI, ReferenceOr, Schema, SchemaKind, StringFormat, Type,
     VariantOrUnknownOrEmpty,
 };
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 
 const X_RUST_TYPE: &str = "x-rust-type";
 const X_RUST_ATTRS: &str = "x-rust-attrs";
@@ -739,7 +739,7 @@ fn resolve_all_of_fields(
     all_of: &[ReferenceOr<Schema>],
     all_schemas: &IndexMap<String, ReferenceOr<Schema>>,
 ) -> Result<(Vec<Field>, Vec<ModelType>)> {
-    let mut all_fields: HashMap<String, Field> = HashMap::new();
+    let mut all_fields: IndexMap<String, Field> = IndexMap::new();
     let mut models = Vec::new();
     let mut all_required_fields = HashSet::new();
 
@@ -763,7 +763,7 @@ fn resolve_all_of_fields(
     //  - Most of the substitions are fairly straightforward, Value, Optional Value.
     //  - HashMap is more complex to understand, we are replacing a Value HashMap
     //    with an actual structure type
-    fn less_value(fields: Vec<Field>, all_fields: &mut HashMap<String, Field>) {
+    fn less_value(fields: Vec<Field>, all_fields: &mut IndexMap<String, Field>) {
         for field in fields {
             if let Some(existing_field) = all_fields.get_mut(&field.name) {
                 // Value
