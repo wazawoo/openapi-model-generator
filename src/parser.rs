@@ -116,23 +116,32 @@ pub fn parse_openapi(
     }
 
     // Parse paths
-    for (_path, path_item) in openapi.paths.iter() {
+    for (path, path_item) in openapi.paths.iter() {
         let path_item = match path_item {
             ReferenceOr::Item(item) => item,
             ReferenceOr::Reference { .. } => continue,
         };
 
         let operations = [
-            &path_item.get,
-            &path_item.post,
-            &path_item.put,
-            &path_item.delete,
-            &path_item.patch,
+            ("GET", &path_item.get),
+            ("POST", &path_item.post),
+            ("PUT", &path_item.put),
+            ("DELETE", &path_item.delete),
+            ("PATCH", &path_item.patch),
         ];
 
-        for op in operations.iter().filter_map(|o| o.as_ref()) {
+        for (method, op) in operations.iter().filter_map(|(m, o)| o.as_ref().map(|operation| (*m, operation))) {
+            let backup_name = format!(
+                "{}{}", 
+                method, 
+                to_pascal_case(&path
+                    .replace('/', "-")
+                    .replace('{', "-")
+                    .replace('}', "")
+                )
+            );
             let inline_models =
-                process_operation(op, &mut requests, &mut responses, schemas, request_bodies)?;
+                process_operation(op, &mut requests, &mut responses, schemas, request_bodies, &backup_name)?;
             for model_type in inline_models {
                 if added_models.insert(model_type.name().to_string()) {
                     models.push(model_type);
@@ -150,6 +159,7 @@ fn process_operation(
     responses: &mut Vec<ResponseModel>,
     all_schemas: &IndexMap<String, ReferenceOr<Schema>>,
     request_bodies: &IndexMap<String, ReferenceOr<openapiv3::RequestBody>>,
+    backup_name: &str
 ) -> Result<Vec<ModelType>> {
     let mut inline_models = Vec::new();
 
@@ -176,7 +186,7 @@ fn process_operation(
             for (content_type, media_type) in &request_body.content {
                 if let Some(schema) = &media_type.schema {
                     let operation_name =
-                        to_pascal_case(operation.operation_id.as_deref().unwrap_or("Unknown"));
+                        to_pascal_case(operation.operation_id.as_deref().unwrap_or(backup_name));
 
                     let schema_type = if is_inline {
                         if let ReferenceOr::Item(schema_item) = schema {
@@ -214,14 +224,28 @@ fn process_operation(
         if let ReferenceOr::Item(response) = response_ref {
             for (content_type, media_type) in &response.content {
                 if let Some(schema) = &media_type.schema {
+                    let operation_name =
+                        to_pascal_case(operation.operation_id.as_deref().unwrap_or(backup_name));
+
+                    let schema_type = if let ReferenceOr::Item(schema_item) = schema {
+                        if matches!(schema_item.schema_kind, SchemaKind::Type(Type::Object(_)))
+                        {
+                            let model_name = format!("{operation_name}Response{status}");
+                            let model_types =
+                                parse_schema_to_model_type(&model_name, schema, all_schemas)?;
+                            inline_models.extend(model_types);
+                            model_name
+                        } else {
+                            extract_type_and_format(schema, all_schemas)?.0
+                        }
+                    } else {
+                        extract_type_and_format(schema, all_schemas)?.0
+                    };
                     let response = ResponseModel {
-                        name: format!(
-                            "{}Response",
-                            to_pascal_case(operation.operation_id.as_deref().unwrap_or("Unknown"))
-                        ),
+                        name: operation_name,
                         status_code: status.to_string(),
                         content_type: content_type.clone(),
-                        schema: extract_type_and_format(schema, all_schemas)?.0,
+                        schema: schema_type,
                         description: Some(response.description.clone()),
                     };
                     responses.push(response);
