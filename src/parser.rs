@@ -214,14 +214,27 @@ fn process_operation(
         if let ReferenceOr::Item(response) = response_ref {
             for (content_type, media_type) in &response.content {
                 if let Some(schema) = &media_type.schema {
+                    let operation_name =
+                        to_pascal_case(operation.operation_id.as_deref().unwrap_or(backup_name));
+                    let schema_type = if let ReferenceOr::Item(schema_item) = schema {
+                        if matches!(schema_item.schema_kind, SchemaKind::Type(Type::Object(_)))
+                        {
+                            let model_name = format!("{operation_name}Response{status}");
+                            let model_types =
+                                parse_schema_to_model_type(&model_name, schema, all_schemas)?;
+                            inline_models.extend(model_types);
+                            model_name
+                        } else {
+                            extract_type_and_format(schema, all_schemas)?.0
+                        }
+                    } else {
+                        extract_type_and_format(schema, all_schemas)?.0
+                    };
                     let response = ResponseModel {
-                        name: format!(
-                            "{}Response",
-                            to_pascal_case(operation.operation_id.as_deref().unwrap_or("Unknown"))
-                        ),
+                        name: operation_name,
                         status_code: status.to_string(),
                         content_type: content_type.clone(),
-                        schema: extract_type_and_format(schema, all_schemas)?.0,
+                        schema: schema_type,
                         description: Some(response.description.clone()),
                     };
                     responses.push(response);
