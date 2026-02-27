@@ -187,6 +187,7 @@ fn process_operation(
                 if let Some(schema) = &media_type.schema {
                     let operation_name =
                         to_pascal_case(operation.operation_id.as_deref().unwrap_or(backup_name));
+
                     let schema_type = if is_inline {
                         if let ReferenceOr::Item(schema_item) = schema {
                             if matches!(schema_item.schema_kind, SchemaKind::Type(Type::Object(_)))
@@ -225,6 +226,7 @@ fn process_operation(
                 if let Some(schema) = &media_type.schema {
                     let operation_name =
                         to_pascal_case(operation.operation_id.as_deref().unwrap_or(backup_name));
+
                     let schema_type = if let ReferenceOr::Item(schema_item) = schema {
                         if matches!(schema_item.schema_kind, SchemaKind::Type(Type::Object(_)))
                         {
