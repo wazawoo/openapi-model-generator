@@ -1104,6 +1104,70 @@ mod tests {
     use serde_json::json;
 
     #[test]
+    fn test_parse_inline_response_generates_model() {
+        let openapi_spec: OpenAPI = serde_json::from_value(json!({
+            "openapi": "3.0.0",
+            "info": { "title": "Test API", "version": "1.0.0" },
+            "paths": {
+                "/items": {
+                    "get": {
+                        "operationId": "getItem",
+                        "responses": { 
+                            "200": { 
+                                "description": "OK",
+                                "content": {
+                                    "application/json": {
+                                        "schema": {
+                                            "type": "object",
+                                            "properties": {
+                                                "name": { "type": "string" },
+                                                "value": { "type": "integer" }
+                                            },
+                                            "required": ["name"]
+                                        }
+                                    }
+                                }
+                            } 
+                        }
+                    }
+                }
+            }
+        }))
+        .expect("Failed to deserialize OpenAPI spec");
+
+        let (models, _requests, responses) =
+            parse_openapi(&openapi_spec).expect("Failed to parse OpenAPI spec");
+
+        // 1. Verify that response model was created
+        assert_eq!(responses.len(), 1);
+        let response_model = &responses[0];
+        assert_eq!(response_model.name, "GetItem");
+
+        // 2. Verify that response schema references a NEW model, not Value
+        assert_eq!(response_model.schema, "GetItemResponse200");
+
+        // 3. Verify that the response model itself was generated
+        let inline_model = models.iter().find(|m| m.name() == "GetItemResponse200");
+        assert!(
+            inline_model.is_some(),
+            "Expected a model named 'GetItemResponse200' to be generated"
+        );
+
+        if let Some(ModelType::Struct(model)) = inline_model {
+            assert_eq!(model.fields.len(), 2);
+            assert_eq!(model.fields[0].name, "name");
+            assert_eq!(model.fields[0].field_type, "String");
+            assert!(model.fields[0].is_required);
+
+            assert_eq!(model.fields[1].name, "value");
+            assert_eq!(model.fields[1].field_type, "i64");
+            assert!(!model.fields[1].is_required);
+        } else {
+            panic!("Expected a Struct model for GetItemResponse");
+        }
+    }
+
+    #[test]
     fn test_parse_inline_request_body_generates_model() {
         let openapi_spec: OpenAPI = serde_json::from_value(json!({
             "openapi": "3.0.0",
