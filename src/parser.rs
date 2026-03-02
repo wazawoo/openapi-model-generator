@@ -130,18 +130,23 @@ pub fn parse_openapi(
             ("PATCH", &path_item.patch),
         ];
 
-        for (method, op) in operations.iter().filter_map(|(m, o)| o.as_ref().map(|operation| (*m, operation))) {
+        for (method, op) in operations
+            .iter()
+            .filter_map(|(m, o)| o.as_ref().map(|operation| (*m, operation)))
+        {
             let backup_name = format!(
-                "{}{}", 
-                method, 
-                to_pascal_case(&path
-                    .replace('/', "-")
-                    .replace('{', "-")
-                    .replace('}', "")
-                )
+                "{}{}",
+                method,
+                to_pascal_case(&path.replace('/', "-").replace('{', "-").replace('}', ""))
             );
-            let inline_models =
-                process_operation(op, &mut requests, &mut responses, schemas, request_bodies, &backup_name)?;
+            let inline_models = process_operation(
+                op,
+                &mut requests,
+                &mut responses,
+                schemas,
+                request_bodies,
+                &backup_name,
+            )?;
             for model_type in inline_models {
                 if added_models.insert(model_type.name().to_string()) {
                     models.push(model_type);
@@ -159,7 +164,7 @@ fn process_operation(
     responses: &mut Vec<ResponseModel>,
     all_schemas: &IndexMap<String, ReferenceOr<Schema>>,
     request_bodies: &IndexMap<String, ReferenceOr<openapiv3::RequestBody>>,
-    backup_name: &str
+    backup_name: &str,
 ) -> Result<Vec<ModelType>> {
     let mut inline_models = Vec::new();
 
@@ -228,8 +233,7 @@ fn process_operation(
                         to_pascal_case(operation.operation_id.as_deref().unwrap_or(backup_name));
 
                     let schema_type = if let ReferenceOr::Item(schema_item) = schema {
-                        if matches!(schema_item.schema_kind, SchemaKind::Type(Type::Object(_)))
-                        {
+                        if matches!(schema_item.schema_kind, SchemaKind::Type(Type::Object(_))) {
                             let model_name = format!("{operation_name}Response{status}");
                             let model_types =
                                 parse_schema_to_model_type(&model_name, schema, all_schemas)?;
@@ -1112,8 +1116,8 @@ mod tests {
                 "/items": {
                     "get": {
                         "operationId": "getItem",
-                        "responses": { 
-                            "200": { 
+                        "responses": {
+                            "200": {
                                 "description": "OK",
                                 "content": {
                                     "application/json": {
@@ -1127,7 +1131,7 @@ mod tests {
                                         }
                                     }
                                 }
-                            } 
+                            }
                         }
                     }
                 }
