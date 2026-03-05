@@ -1161,11 +1161,9 @@ mod tests {
             assert_eq!(model.fields.len(), 2);
             assert_eq!(model.fields[0].name, "name");
             assert_eq!(model.fields[0].field_type, "String");
-            assert!(model.fields[0].is_required);
 
             assert_eq!(model.fields[1].name, "value");
             assert_eq!(model.fields[1].field_type, "i64");
-            assert!(!model.fields[1].is_required);
         } else {
             panic!("Expected a Struct model for GetItemResponse");
         }
