@@ -357,6 +357,7 @@ fn parse_schema_to_model_type(
                                 inline_models.extend(nested_models);
                             }
                         }
+                        
                         let (field_info, inline_model) = match field_schema {
                             ReferenceOr::Item(boxed_schema) => extract_field_info(
                                 field_name,
