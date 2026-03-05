@@ -137,7 +137,7 @@ pub fn parse_openapi(
             let backup_name = format!(
                 "{}{}",
                 method,
-                to_pascal_case(&path.replace('/', "-").replace('{', "-").replace('}', ""))
+                to_pascal_case(&path.replace(['/', '{'], "-").replace('}', ""))
             );
             let inline_models = process_operation(
                 op,
@@ -263,9 +263,9 @@ fn process_operation(
                     };
                     let response = ResponseModel {
                         name: operation_name,
-                        status_code: format!("{}", status.to_string()),
+                        status_code: format!("{}", status),
                         content_type: content_type.clone(),
-                        schema: schema,
+                        schema,
                         description: Some(response.description.clone()),
                     };
                     responses.push(response);
@@ -1183,7 +1183,9 @@ mod tests {
         assert_eq!(response_model.schema, "Vec<GetItemsResponseArrayObject200>");
 
         // 3. Verify that the array object model was generated
-        let inline_model = models.iter().find(|m| m.name() == "GetItemsResponseArrayObject200");
+        let inline_model = models
+            .iter()
+            .find(|m| m.name() == "GetItemsResponseArrayObject200");
         assert!(
             inline_model.is_some(),
             "Expected a model named 'GetItemsResponseArrayObject200' to be generated"
