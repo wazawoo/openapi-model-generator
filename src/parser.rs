@@ -341,12 +341,13 @@ fn parse_schema_to_model_type(
                                     all_schemas,
                                 )?;
                                 inline_models.extend(nested_models);
-                            } else if matches!(&boxed_schema.schema_kind, SchemaKind::Type(Type::Array(_))) {
-                                let struct_name = format!(
-                                    "{}Item",
-                                    to_pascal_case(field_name)
-                                );
-                                field_to_field_type.insert(field_name.to_string(), struct_name.to_string());
+                            } else if matches!(
+                                &boxed_schema.schema_kind,
+                                SchemaKind::Type(Type::Array(_))
+                            ) {
+                                let struct_name = format!("{}Item", to_pascal_case(field_name));
+                                field_to_field_type
+                                    .insert(field_name.to_string(), struct_name.to_string());
                                 let wrapped_schema = ReferenceOr::Item((**boxed_schema).clone());
                                 let nested_models = parse_schema_to_model_type(
                                     &struct_name,
@@ -376,7 +377,10 @@ fn parse_schema_to_model_type(
                         let is_required = obj.required.contains(field_name);
                         fields.push(Field {
                             name: field_name.clone(),
-                            field_type: field_to_field_type.get(field_name).unwrap_or(&field_info.field_type).to_string(),
+                            field_type: field_to_field_type
+                                .get(field_name)
+                                .unwrap_or(&field_info.field_type)
+                                .to_string(),
                             format: field_info.format,
                             is_required,
                             is_array_ref: field_info.is_array_ref,
@@ -1201,9 +1205,7 @@ mod tests {
         assert_eq!(response_model.schema, "GetItemsResponse200");
 
         // 3. Verify that the nested object model was generated
-        let inline_model = models
-            .iter()
-            .find(|m| m.name() == "ObjectArrayItem");
+        let inline_model = models.iter().find(|m| m.name() == "ObjectArrayItem");
         assert!(
             inline_model.is_some(),
             "Expected a model named 'ObjectArrayItem' to be generated"
