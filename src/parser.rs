@@ -329,6 +329,7 @@ fn parse_schema_to_model_type(
 
                     // Process regular properties
                     for (field_name, field_schema) in &obj.properties {
+                        let mut field_to_field_type: IndexMap<String, String> = IndexMap::new();
                         if let ReferenceOr::Item(boxed_schema) = field_schema {
                             if matches!(boxed_schema.schema_kind, SchemaKind::Type(Type::Object(_)))
                             {
@@ -340,9 +341,21 @@ fn parse_schema_to_model_type(
                                     all_schemas,
                                 )?;
                                 inline_models.extend(nested_models);
+                            } else if matches!(&boxed_schema.schema_kind, SchemaKind::Type(Type::Array(_))) {
+                                let struct_name = format!(
+                                    "{}Item",
+                                    to_pascal_case(field_name)
+                                );
+                                field_to_field_type.insert(field_name.to_string(), struct_name.to_string());
+                                let wrapped_schema = ReferenceOr::Item((**boxed_schema).clone());
+                                let nested_models = parse_schema_to_model_type(
+                                    &struct_name,
+                                    &wrapped_schema,
+                                    all_schemas,
+                                )?;
+                                inline_models.extend(nested_models);
                             }
                         }
-
                         let (field_info, inline_model) = match field_schema {
                             ReferenceOr::Item(boxed_schema) => extract_field_info(
                                 field_name,
@@ -363,7 +376,7 @@ fn parse_schema_to_model_type(
                         let is_required = obj.required.contains(field_name);
                         fields.push(Field {
                             name: field_name.clone(),
-                            field_type: field_info.field_type,
+                            field_type: field_to_field_type.get(field_name).unwrap_or(&field_info.field_type).to_string(),
                             format: field_info.format,
                             is_required,
                             is_array_ref: field_info.is_array_ref,
@@ -1132,6 +1145,79 @@ fn extract_fields_from_schema(
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn test_parse_nested_object_array_generates_model() {
+        let openapi_spec: OpenAPI = serde_json::from_value(json!({
+            "openapi": "3.0.0",
+            "info": { "title": "Test API", "version": "1.0.0" },
+            "paths": {
+                "/items": {
+                    "get": {
+                        "operationId": "getItems",
+                        "responses": {
+                            "200": {
+                                "description": "OK",
+                                "content": {
+                                    "application/json": {
+                                        "schema": {
+                                            "type": "object",
+                                            "properties": {
+                                                "exampleField": {
+                                                    "type": "string"
+                                                },
+                                                "objectArray": {
+                                                    "type": "array",
+                                                    "items": {
+                                                        "type": "object",
+                                                        "properties": {
+                                                            "objectArrayItemField": {
+                                                                "type": "string"
+                                                            },
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        },
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }))
+        .expect("Failed to deserialize OpenAPI spec");
+
+        let (models, _requests, responses) =
+            parse_openapi(&openapi_spec).expect("Failed to parse OpenAPI spec");
+
+        // 1. Verify that response model was created
+        assert_eq!(responses.len(), 1);
+        let response_model = &responses[0];
+        assert_eq!(response_model.name, "GetItems");
+
+        // 2. Verify that response schema references the top level object
+        assert_eq!(response_model.schema, "GetItemsResponse200");
+
+        // 3. Verify that the nested object model was generated
+        let inline_model = models
+            .iter()
+            .find(|m| m.name() == "ObjectArrayItem");
+        assert!(
+            inline_model.is_some(),
+            "Expected a model named 'ObjectArrayItem' to be generated"
+        );
+
+        if let Some(ModelType::Struct(model)) = inline_model {
+            assert_eq!(model.fields.len(), 1);
+
+            assert_eq!(model.fields[0].name, "objectArrayItemField");
+            assert_eq!(model.fields[0].field_type, "String");
+        } else {
+            panic!("Expected a Struct model for GetItemsResponse");
+        }
+    }
 
     #[test]
     fn test_parse_top_level_array_object_generates_model() {
