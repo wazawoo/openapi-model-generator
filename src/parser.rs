@@ -231,12 +231,23 @@ fn process_operation(
                 if let Some(schema) = &media_type.schema {
                     let operation_name =
                         to_pascal_case(operation.operation_id.as_deref().unwrap_or(backup_name));
-
+                    let mut is_array = false;
                     let schema_type = if let ReferenceOr::Item(schema_item) = schema {
                         if matches!(schema_item.schema_kind, SchemaKind::Type(Type::Object(_))) {
                             let model_name = format!("{operation_name}Response{status}");
                             let model_types =
                                 parse_schema_to_model_type(&model_name, schema, all_schemas)?;
+                            inline_models.extend(model_types);
+                            model_name
+                        } else if matches!(
+                            schema_item.schema_kind,
+                            SchemaKind::Type(Type::Array(_))
+                        ) {
+                            is_array = true;
+                            let model_name = format!("{operation_name}ResponseArrayObject{status}");
+                            let model_types =
+                                parse_schema_to_model_type(&model_name, schema, all_schemas)?;
+
                             inline_models.extend(model_types);
                             model_name
                         } else {
@@ -245,11 +256,16 @@ fn process_operation(
                     } else {
                         extract_type_and_format(schema, all_schemas)?.0
                     };
+                    let schema = if is_array {
+                        format!("Vec<{}>", schema_type)
+                    } else {
+                        schema_type
+                    };
                     let response = ResponseModel {
                         name: operation_name,
-                        status_code: status.to_string(),
+                        status_code: format!("{}", status.to_string()),
                         content_type: content_type.clone(),
-                        schema: schema_type,
+                        schema: schema,
                         description: Some(response.description.clone()),
                     };
                     responses.push(response);
@@ -458,6 +474,16 @@ fn parse_schema_to_model_type(
 
                     match items {
                         ReferenceOr::Item(item_schema) => match &item_schema.schema_kind {
+                            SchemaKind::Type(Type::Object(_obj)) => {
+                                let array_model_schema = ReferenceOr::Item((**item_schema).clone());
+                                let array_object_models = parse_schema_to_model_type(
+                                    name,
+                                    &array_model_schema,
+                                    all_schemas,
+                                )?;
+                                models.extend(array_object_models);
+                            }
+
                             SchemaKind::OneOf { one_of } => {
                                 let item_type_name = format!("{array_name}Item");
 
