@@ -1,11 +1,12 @@
 use std::sync::OnceLock;
 
+use indexmap::IndexMap;
+use openapiv3::{Operation, ReferenceOr};
+
 use crate::{
-    models::{
-        CompositionModel, EnumModel, Model, ModelType, RequestModel, ResponseModel, TypeAliasModel,
-        UnionModel, UnionType,
-    },
-    Result,
+    Result, models::{
+        CompositionModel, EnumModel, Model, ModelType, RequestModel, ResponseModel, RouteModel, TypeAliasModel, UnionModel, UnionType
+    }
 };
 
 bitflags::bitflags! {
@@ -138,6 +139,8 @@ pub fn generate_models(
     models: &[ModelType],
     requests: &[RequestModel],
     responses: &[ResponseModel],
+    models_to_skip: Vec<String>,
+    type_name_replacements: &IndexMap<String, String>
 ) -> Result<String> {
     // First, generate all model code to determine which imports are needed
     let mut models_code = String::new();
@@ -146,7 +149,10 @@ pub fn generate_models(
     for model_type in models {
         match model_type {
             ModelType::Struct(model) => {
-                models_code.push_str(&generate_model(model, &mut required_uses)?);
+                if models_to_skip.contains(&model.name) {
+                    continue;
+                }
+                models_code.push_str(&generate_model(model, &mut required_uses, type_name_replacements)?);
             }
             ModelType::Union(union) => {
                 models_code.push_str(&generate_union(union)?);
@@ -158,6 +164,9 @@ pub fn generate_models(
                 models_code.push_str(&generate_enum(enum_model)?);
             }
             ModelType::TypeAlias(type_alias) => {
+                if models_to_skip.contains(&type_alias.name) {
+                    continue;
+                }
                 models_code.push_str(&generate_type_alias(type_alias)?);
             }
         }
@@ -168,7 +177,7 @@ pub fn generate_models(
     }
 
     for response in responses {
-        models_code.push_str(&generate_response_model(response)?);
+        models_code.push_str(&generate_response_model(response, &type_name_replacements)?);
     }
 
     // Determine which imports are actually needed
@@ -206,12 +215,18 @@ pub fn generate_models(
     Ok(output)
 }
 
-fn generate_model(model: &Model, required_uses: &mut RequiredUses) -> Result<String> {
+fn generate_model(model: &Model, required_uses: &mut RequiredUses, type_name_replacements: &IndexMap<String, String>) -> Result<String> {
     let mut output = String::new();
+
+    let model_type = if let Some(replacement) = type_name_replacements.get(&model.name) {
+        replacement
+    } else {
+        &model.name
+    };
 
     output.push_str(&generate_description_docs(
         &model.description,
-        &model.name,
+        model_type,
         "",
     ));
 
@@ -222,10 +237,10 @@ fn generate_model(model: &Model, required_uses: &mut RequiredUses) -> Result<Str
         output.push_str("#[derive(Debug, Clone, Serialize, Deserialize)]\n");
     }
 
-    output.push_str(&format!("pub struct {} {{\n", model.name));
+    output.push_str(&format!("pub struct {} {{\n", model_type));
 
     for field in &model.fields {
-        let field_type = match field.field_type.as_str() {
+        let _field_type = match field.field_type.as_str() {
             "String" => "String",
             "f64" => "f64",
             "i64" => "i64",
@@ -243,6 +258,12 @@ fn generate_model(model: &Model, required_uses: &mut RequiredUses) -> Result<Str
                 "Uuid"
             }
             _ => &field.field_type,
+        };
+
+        let field_type = if let Some(replacement) = type_name_replacements.get(_field_type) {
+            replacement
+        } else {
+            _field_type
         };
 
         let mut lowercased_name = to_snake_case(field.name.as_str());
@@ -301,12 +322,18 @@ fn generate_request_model(request: &RequestModel) -> Result<String> {
     Ok(output)
 }
 
-fn generate_response_model(response: &ResponseModel) -> Result<String> {
+fn generate_response_model(response: &ResponseModel, type_name_replacements: &IndexMap<String, String>) -> Result<String> {
     if response.name.is_empty() || response.name == EMPTY_RESPONSE_NAME {
         return Ok(String::new());
     }
 
     let type_name = format!("{}{}", response.name, response.status_code);
+
+    let response_type = if let Some(replacement) = type_name_replacements.get(&response.schema) {
+        replacement
+    } else {
+        &response.schema
+    };
 
     let mut output = String::new();
 
@@ -318,7 +345,7 @@ fn generate_response_model(response: &ResponseModel) -> Result<String> {
 
     output.push_str("#[derive(Debug, Clone, Deserialize)]\n");
     output.push_str(&format!("pub struct {type_name} {{\n"));
-    output.push_str(&format!("    pub body: {},\n", response.schema));
+    output.push_str(&format!("    pub body: {},\n", response_type));
     output.push_str("}\n");
 
     Ok(output)
@@ -494,6 +521,231 @@ fn generate_type_alias(type_alias: &TypeAliasModel) -> Result<String> {
     Ok(output)
 }
 
+pub fn generate_routes(
+    routes: &[RouteModel],
+    type_name_replacements: &IndexMap<String, String>,
+) -> Result<String> {
+    let mut routes_output = "".to_string();
+
+    for route in routes {
+        let route_output = generate_route_model(
+            &route,
+            type_name_replacements.clone()
+        )?;
+        routes_output.push_str(&route_output);
+    }
+
+    // write fully clears the file, so i can only call it once
+    let mut file_contents = "".to_string();
+
+    file_contents.push_str("use reqwest::Method;\n");
+    file_contents.push_str("use reqwest::header::HeaderMap;\n");
+    file_contents.push_str("use reqwest::header::HeaderName;\n");
+    file_contents.push_str("use reqwest::header::HeaderValue;\n\n");
+    file_contents.push_str("use crate::models::*;\n");
+    file_contents.push_str("use crate::bird_client::BirdRequest;\n\n");
+
+    file_contents.push_str(&routes_output);
+    Ok(file_contents)
+}
+
+pub fn create_route_model(
+    path: String,
+    backup_name: String,
+    method: String,
+    response_schema: String,
+    op: &Operation,
+) -> Result<RouteModel> {
+    // let mut q_params_string = "".to_string();
+    // let mut h_params_string = "".to_string();
+    // let mut p_params_string = "".to_string();
+    // let mut c_params_string = "".to_string();
+    
+    let mut query_params: IndexMap<String, String> = IndexMap::new();
+    let mut additional_headers: IndexMap<String, String> = IndexMap::new();
+
+    for param in op.parameters.clone() {
+        if let ReferenceOr::Item(_param) = param {
+            match _param {
+                openapiv3::Parameter::Query { parameter_data, allow_reserved: _, style: _, allow_empty_value: _} => {
+                    // dbg!(param);
+                    let rust_name = to_snake_case(&parameter_data.name);
+                    query_params.insert(
+                        parameter_data.name, 
+                        rust_name
+                    );
+                },
+                openapiv3::Parameter::Header { parameter_data, style: _ } => {
+                   let rust_name = parameter_data.name
+                        .replace('-',"_")
+                        .to_lowercase();
+                    additional_headers.insert(
+                        parameter_data.name,
+                        rust_name
+                    );
+                },
+                openapiv3::Parameter::Path { parameter_data: _, style: _ } => {
+                    // let name = parameter_data.name;
+                    // will want these in a moment... once include path params in schema
+                    // p_params_string.push_str(&format!("P:{}, ", name).to_string());
+                },
+                openapiv3::Parameter::Cookie { parameter_data: _, style: _ } => {
+                    // let name = parameter_data.name;
+                    // c_params_string.push_str(&format!("C:{}, ", name).to_string());
+                },
+            }
+        }
+    }
+
+    // maybe unique to my dataset, but grabbing path params from path string (they arent in op.params above)
+    let mut format_path = "".to_string();
+    let mut path_params: IndexMap<String, String> = IndexMap::new();
+    let mut in_param = false;
+    let mut current_param = "".to_string();
+    for ch in path.chars() {
+        match ch {
+            '{' => {
+                in_param = true;
+                current_param = "".to_string();
+                format_path.push(ch);
+            },
+            '}' => {
+                in_param = false;
+                let rust_name = to_snake_case(&current_param);
+                path_params.insert(current_param.clone(), rust_name);
+                format_path.push(ch);
+            },
+            _ => {
+                if in_param {
+                    current_param.push(ch);
+                } else {
+                    format_path.push(ch);
+                }
+            }
+        }
+    }
+
+    dbg!(&response_schema);
+
+    Ok(
+        RouteModel { 
+            path: path.to_string(), 
+            backup_name,
+            method,
+            format_path,
+            query_params,
+            path_params,
+            additional_headers,
+            response_schema
+        }
+    )
+}
+
+pub fn generate_route_model(
+    route: &RouteModel,
+    type_name_replacements: IndexMap<String, String>
+) -> Result<String> {
+    let mut route_output = String::new();
+    // // ignoring p params and c params for now...
+    // let mut p_params_string = "".to_string();
+    // let mut c_params_string = "".to_string();
+
+    // Query params
+    let mut q_params_string = "".to_string();
+    for (q_param, _rust_name) in &route.query_params {
+        // this is just one substitution. rightmost brackets are escaped.
+        // after substitution looks like: "?qParam={}"
+        if q_params_string.is_empty() {
+            q_params_string.push_str(&format!("?{}={{}}", q_param).to_string());
+        } else {
+            q_params_string.push_str(&format!("&{}={{}}", q_param).to_string());
+        }
+    }
+
+    // string of args for "format!()"
+    let mut format_path = format!("\"{}{}\"", route.format_path, q_params_string);
+    for (_param, rust_name) in route.path_params.clone() {
+        format_path.push_str(&format!(", self.{}", rust_name));
+    }
+    for (_param, rust_name) in route.query_params.clone() {
+        format_path.push_str(&format!(", self.{}", rust_name));
+    }
+    
+    let func_name = &route.backup_name;
+    let tab = "    ";
+
+    let response_type = if let Some(replacement) = type_name_replacements.get(&route.response_schema) {
+        replacement
+    } else {
+        &route.response_schema
+    };
+
+    // request model
+    route_output.push_str(&format!("pub struct {} {{\n", func_name));
+    if !route.path_params.is_empty() {
+        route_output.push_str(&format!("{}// path params: {:?} \n", tab, route.path_params.keys()));
+        for (_, rust_name) in &route.path_params {
+            route_output.push_str(&format!("{}pub {}: String,\n", tab, rust_name));
+        }
+    }
+    if !q_params_string.is_empty() {
+        route_output.push_str(&format!("{}// q params: {} \n", tab, q_params_string));
+        for (_, rust_name) in &route.query_params {
+            route_output.push_str(&format!("{}pub {}: String,\n", tab, rust_name));
+        }
+    }
+    if !route.additional_headers.is_empty() {
+        route_output.push_str(&format!("{}// headers: {:?} \n", tab, route.additional_headers.keys()));
+        for (_, rust_name) in &route.additional_headers {
+            route_output.push_str(&format!("{}pub {}: String,\n", tab, rust_name));
+        }
+    }
+    route_output.push_str("}\n");
+
+    // if !p_params_string.is_empty() {
+    //     route_output.push_str(&format!("{}// p params: {} \n", tab, p_params_string));
+    // }
+    // if !c_params_string.is_empty() {
+    //     route_output.push_str(&format!("{}// c params: {} \n", tab, c_params_string));
+    // }
+
+    // put params here. some url, some path. should have type too...
+    route_output.push_str(&format!("impl BirdRequest for {} {{\n", func_name));
+    route_output.push_str(&format!("{}type ResponseType = {};\n", tab, response_type));
+    route_output.push_str(&format!("{}const METHOD: Method = Method::{};\n", tab, route.method));
+
+    // if res type is raw string, we need to decode differently
+    if response_type == "String" {
+        route_output.push_str(&format!("{}const RETURNS_CSV: bool = true;\n", tab));
+    }
+
+    // path()
+    route_output.push_str(&format!("{}fn path(&self) -> String {{\n", tab));
+    route_output.push_str(&format!("{}{}format!({})\n", tab, tab, format_path));
+    route_output.push_str(&format!("{}}}\n", tab));
+
+    // headers (if any)
+    route_output.push_str(&format!("{}fn additional_headers(&self) -> HeaderMap {{\n", tab));
+    if route.additional_headers.is_empty() {
+        route_output.push_str(&format!("{}{}HeaderMap::new()\n", tab, tab));
+    } else {
+        route_output.push_str(&format!("{}{}let mut map = HeaderMap::new();\n", tab, tab));
+        for (header_param, rust_name) in &route.additional_headers {
+            route_output.push_str(&format!("{}{}if let (Ok(name), Ok(value)) = (\n", tab, tab));
+            route_output.push_str(&format!("{}{}{}HeaderName::from_bytes(\"{}\".as_bytes()),\n", tab, tab, tab, header_param));
+            route_output.push_str(&format!("{}{}{}HeaderValue::from_str(&self.{})\n", tab, tab, tab, rust_name));
+            route_output.push_str(&format!("{}{}) {{\n", tab, tab));
+            route_output.push_str(&format!("{}{}{}map.insert(name, value);\n", tab, tab, tab));
+            route_output.push_str(&format!("{}{}}}\n", tab, tab));
+        }
+        route_output.push_str(&format!("{}{}map\n", tab, tab));
+    }
+    route_output.push_str(&format!("{}}}\n", tab));
+
+    route_output.push_str("}\n\n");
+    Ok(route_output)
+}
+
 pub fn generate_rust_code(models: &[Model]) -> Result<String> {
     let mut code = create_header();
 
@@ -546,6 +798,7 @@ pub fn generate_rust_code(models: &[Model]) -> Result<String> {
 pub fn generate_lib() -> Result<String> {
     let mut code = create_header();
     code.push_str("pub mod models;\n");
+    code.push_str("pub mod routes;\n");
 
     Ok(code)
 }

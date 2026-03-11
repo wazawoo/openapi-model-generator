@@ -1,4 +1,5 @@
 use clap::Parser;
+use indexmap::IndexMap;
 use openapi_model_generator::{cli::Args, generator, parser, Error, Result};
 use openapiv3::OpenAPI;
 use std::fs;
@@ -71,11 +72,71 @@ fn main() -> Result<()> {
         serde_json::from_str(&content)?
     };
 
-    let (models, requests, responses) = parser::parse_openapi(&openapi)?;
+    let (models, requests, responses, routes) = parser::parse_openapi(&openapi)?;
 
-    let rust_code = generator::generate_models(&models, &requests, &responses)?;
+    // this one is string vec:
+    //GETRefTaxonFormsSpeciesCodeResponseArrayObject200
+
+    // this one is a type alias...
+    let models_to_skip: Vec<String> = vec![
+        "GETRefTaxonFormsSpeciesCodeResponseArrayObject200".to_string(),
+        "GETDataObsRegionCodeRecentResponseArrayObject200".to_string(),
+        "GETDataObsRegionCodeRecentSpeciesCodeResponseArrayObject200".to_string(),
+        "GETDataObsGeoRecentResponseArrayObject200".to_string(),
+        "GETRefRegionListRegionTypeParentRegionCodeResponseArrayObject200".to_string(),
+        "GETDataObsGeoRecentSpeciesCodeResponseArrayObject200".to_string(),
+        "GETDataNearestGeoRecentSpeciesCodeResponseArrayObject200".to_string(),
+        "GETDataObsGeoRecentNotableResponseArrayObject200".to_string(),
+        "GETDataObsRegionCodeHistoricYMDResponseArrayObject200".to_string(),
+        "Parent".to_string(),
+    ];
+
+    let mut type_name_replacements: IndexMap<String, String> = IndexMap::new();
+    type_name_replacements.insert("Vec<GETDataObsRegionCodeRecentNotableResponseArrayObject200>".to_string(), "Vec<Observation>".to_string());
+    type_name_replacements.insert("GETDataObsRegionCodeRecentNotableResponseArrayObject200".to_string(), "Observation".to_string());
+    
+    type_name_replacements.insert("Vec<GETDataObsRegionCodeRecentSpeciesCodeResponseArrayObject200>".to_string(), "Vec<Observation>".to_string());
+    type_name_replacements.insert("GETDataObsRegionCodeRecentSpeciesCodeResponseArrayObject200".to_string(), "Observation".to_string());
+    
+    type_name_replacements.insert("Vec<GETDataObsGeoRecentResponseArrayObject200>".to_string(), "Vec<Observation>".to_string());
+    type_name_replacements.insert("GETDataObsGeoRecentResponseArrayObject200".to_string(), "Observation".to_string());
+    
+    type_name_replacements.insert("Vec<GETDataObsRegionCodeRecentResponseArrayObject200>".to_string(), "Vec<Observation>".to_string());
+    type_name_replacements.insert("GETDataObsRegionCodeRecentResponseArrayObject200".to_string(), "Observation".to_string());
+    type_name_replacements.insert("GETProductChecklistViewSubIdResponse200".to_string(), "Checklist".to_string());
+    
+    type_name_replacements.insert("Vec<GETRefAdjacentRegionCodeResponseArrayObject200>".to_string(), "Vec<RegionCode>".to_string());
+    type_name_replacements.insert("GETRefAdjacentRegionCodeResponseArrayObject200".to_string(), "RegionCode".to_string());
+    
+    type_name_replacements.insert("Vec<GETRefRegionListRegionTypeParentRegionCodeResponseArrayObject200>".to_string(), "Vec<RegionCode>".to_string());
+    
+    type_name_replacements.insert("GETRefHotspotInfoLocIdResponse200".to_string(), "Hotspot".to_string());
+    type_name_replacements.insert("Vec<GETRefTaxaLocalesEbirdResponseArrayObject200>".to_string(), "Vec<TaxaLocale>".to_string());
+    type_name_replacements.insert("Vec<GETRefTaxonomyVersionsResponseArrayObject200>".to_string(), "Vec<TaxonomyVersion>".to_string());
+    type_name_replacements.insert("Vec<GETRefSppgroupSpeciesGroupingResponseArrayObject200>".to_string(), "Vec<TaxonomicGroup>".to_string());
+    type_name_replacements.insert("GETRefRegionInfoRegionCodeResponse200".to_string(), "RegionInfo".to_string());
+    type_name_replacements.insert("Vec<GETRefTaxonFormsSpeciesCodeResponseArrayObject200>".to_string(), "Vec<String>".to_string());
+    type_name_replacements.insert("Vec<GETDataObsGeoRecentSpeciesCodeResponseArrayObject200>".to_string(), "Vec<Observation>".to_string());
+    type_name_replacements.insert("Vec<GETDataNearestGeoRecentSpeciesCodeResponseArrayObject200>".to_string(), "Vec<Observation>".to_string());
+    type_name_replacements.insert("Vec<GETDataObsGeoRecentNotableResponseArrayObject200>".to_string(), "Vec<Observation>".to_string());
+    type_name_replacements.insert("Vec<GETDataObsRegionCodeHistoricYMDResponseArrayObject200>".to_string(), "Vec<Observation>".to_string());
+
+    type_name_replacements.insert("GETRefTaxaLocalesEbirdResponseArrayObject200".to_string(), "TaxaLocale".to_string());
+    type_name_replacements.insert("GETRefTaxonomyVersionsResponseArrayObject200".to_string(), "TaxonomyVersion".to_string());
+    type_name_replacements.insert("GETRefSppgroupSpeciesGroupingResponseArrayObject200".to_string(), "TaxonomicGroup".to_string());
+    type_name_replacements.insert("GETRefTaxonFormsSpeciesCodeResponseArrayObject200".to_string(), "String".to_string());
+    type_name_replacements.insert("GETDataObsGeoRecentSpeciesCodeResponseArrayObject200".to_string(), "Observation".to_string());
+    type_name_replacements.insert("GETDataNearestGeoRecentSpeciesCodeResponseArrayObject200".to_string(), "Observation".to_string());
+    type_name_replacements.insert("GETDataObsGeoRecentNotableResponseArrayObject200".to_string(), "Observation".to_string());
+    type_name_replacements.insert("Parent".to_string(), "Box<RegionInfo>".to_string());
+
+    let rust_code = generator::generate_models(&models, &requests, &responses, models_to_skip, &type_name_replacements)?;
     let output_models_path = args.output.join("models.rs");
     fs::write(&output_models_path, rust_code.trim())?;
+
+    let rust_routes = generator::generate_routes(&routes, &type_name_replacements)?;
+    let output_routes_path = args.output.join("routes.rs");
+    fs::write(&output_routes_path, rust_routes.trim())?;
 
     let rust_lib = generator::generate_lib()?;
     let output_lib_path = args.output.join("mod.rs");
