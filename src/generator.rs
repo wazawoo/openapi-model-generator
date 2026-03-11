@@ -139,7 +139,7 @@ pub fn generate_models(
     models: &[ModelType],
     requests: &[RequestModel],
     responses: &[ResponseModel],
-    models_to_skip: Vec<String>,
+    models_to_skip: &[String],
     type_name_replacements: &IndexMap<String, String>
 ) -> Result<String> {
     // First, generate all model code to determine which imports are needed
@@ -799,6 +799,35 @@ pub fn generate_lib() -> Result<String> {
     let mut code = create_header();
     code.push_str("pub mod models;\n");
     code.push_str("pub mod routes;\n");
+
+    Ok(code)
+}
+
+pub fn generate_readme(
+    models: &[ModelType],
+    requests: &[RequestModel],
+    responses: &[ResponseModel],
+    models_to_skip: &[String],
+    type_name_replacements: &IndexMap<String, String>
+) -> Result<String> {
+    let mut code = "```\n".to_string();
+    code.push_str(&create_header());
+    code.push_str("```\n");
+
+    // beef goes here...
+
+    code.push_str("# Replacements and Omissions\n");
+    code.push_str("## Models to skip\n");
+    for model in models_to_skip {
+        code.push_str(&format!("- `{}`\n", model));
+    }
+    code.push_str("## Models type replacements\n");
+    code.push_str("| old | -> | new |\n");
+    code.push_str("| --- | --- | --- |\n");
+
+    for (from, to) in type_name_replacements {
+        code.push_str(&format!("| `{}` | -> | `{}` |\n", from, to));
+    }
 
     Ok(code)
 }
