@@ -129,7 +129,8 @@ pub fn parse_openapi(
             ("PATCH", &path_item.patch),
         ];
 
-        println!("// {path}");
+        println!("parsing path: {path}");
+
         for (method, op) in operations
             .iter()
             .filter_map(|(m, o)| o.as_ref().map(|operation| (*m, operation)))

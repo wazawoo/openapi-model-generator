@@ -804,9 +804,10 @@ pub fn generate_lib() -> Result<String> {
 }
 
 pub fn generate_readme(
-    models: &[ModelType],
-    requests: &[RequestModel],
-    responses: &[ResponseModel],
+    _models: &[ModelType],
+    _requests: &[RequestModel],
+    _responses: &[ResponseModel],
+    routes: &[RouteModel],
     models_to_skip: &[String],
     type_name_replacements: &IndexMap<String, String>
 ) -> Result<String> {
@@ -814,10 +815,17 @@ pub fn generate_readme(
     code.push_str(&create_header());
     code.push_str("```\n");
 
-    // beef goes here...
+    code.push_str("# Routes\n");
+    code.push_str("| route | response type |\n");
+    code.push_str("| --- | --- |\n");
+    for route in routes {
+        let replacement_schema = type_name_replacements.get(&route.response_schema).map_or("", |v| v);
+        code.push_str(&format!("| `[{}] {}` | `{}` |\n", route.method, route.path, &replacement_schema));
+    }
 
     code.push_str("# Replacements and Omissions\n");
-    code.push_str("## Models to skip\n");
+    code.push_str("*Route list above is after these skips and replacements*\n");
+    code.push_str("## Models to skip during generation\n");
     for model in models_to_skip {
         code.push_str(&format!("- `{}`\n", model));
     }
