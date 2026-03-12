@@ -800,10 +800,114 @@ pub fn generate_lib() -> Result<String> {
     let mut code = create_header();
     code.push_str("pub mod models;\n");
     code.push_str("pub mod routes;\n");
+    code.push_str("pub mod tests;\n");
 
     Ok(code)
 }
 
+pub fn generate_tests(
+    _models: &[ModelType],
+    _requests: &[RequestModel],
+    _responses: &[ResponseModel],
+    routes: &[RouteModel],
+    models_to_skip: &[String],
+    type_name_replacements: &IndexMap<String, String>
+) -> Result<String> {
+    let tab = "    ".to_string();
+    let mut code = "".to_string();
+    code.push_str("#[cfg(test)]\n");
+    code.push_str("mod tests {\n");
+    code.push_str("use crate::generated::routes::*;\n");
+    code.push_str("use crate::bird_client::*;\n");
+    for route in routes {
+        let test_output = generate_test(route, type_name_replacements)?;
+        code.push_str(&test_output);
+    }
+
+    code.push_str("}\n");
+
+    Ok(code.to_string())
+}
+
+pub fn generate_test(
+    route: &RouteModel,
+    type_name_replacements: &IndexMap<String, String>
+) -> Result<String> {
+
+    let tab = "    ";
+    // rename to test_output in a sec...
+    let mut route_output = "".to_string();
+
+    route_output.push_str("#[tokio::test]\n");
+    route_output.push_str(&format!("async fn test_{}() {{\n", to_snake_case(&route.backup_name)));
+    route_output.push_str("let client = BirdClient::new(\n");
+    route_output.push_str("\"https://api.ebird.org/v2\".to_string(),\n");
+    route_output.push_str(");\n");
+
+    route_output.push_str("macro_rules! run_req {\n");
+    route_output.push_str("($name:expr, $req:expr) => {\n");
+    route_output.push_str("match client.do_request($req).await {\n");
+    route_output.push_str("Ok(_) => println!(\"✅ {}\", $name),\n");
+    route_output.push_str("Err(err) => println!(\"❌ {}: {}\", $name, err),\n");
+    route_output.push_str("}\n");
+    route_output.push_str("};\n");
+    route_output.push_str("}\n");
+    let param_values: IndexMap<&str, &str> = IndexMap::from([
+        ("region_code", "CA-BC"),
+        ("parent_region_code", "CA"),
+        ("lat", "49.2827"),
+        ("lng", "-123.1207"),
+        ("species_code", "baleag"),
+        ("y", "2025"),
+        ("m", "10"),
+        ("d", "31"),
+        ("sub_id", "S272331312"),
+        ("region_type", "subnational1"),
+        ("species_grouping", "merlin"),
+        ("accept_language", "en"),
+        ("loc_id", "L99381"),
+    ]);
+    route_output.push_str("run_req!(\n");
+    let func_name = &route.backup_name;
+    
+
+    let response_type = if let Some(replacement) = type_name_replacements.get(&route.response_schema) {
+        replacement
+    } else {
+        &route.response_schema
+    };
+
+    // request model
+    route_output.push_str(&format!("{}\"{}\",\n", tab, func_name));
+    route_output.push_str(&format!("{}{} {{\n", tab, func_name));
+    if !route.path_params.is_empty() {
+        // route_output.push_str(&format!("{}// path params: {:?} \n", tab, route.path_params.keys()));
+        for (_, rust_name) in &route.path_params {
+            route_output.push_str(&format!("{}{}{}: \"{}\".to_string(),\n", tab, tab, rust_name, param_values.get(rust_name.as_str()).unwrap()));
+        }
+    }
+    if !route.query_params.is_empty() {
+        // route_output.push_str(&format!("{}// q params: {:?} \n", tab, tab, route.query_params.keys()));
+        for (_, rust_name) in &route.query_params {
+            // route_output.push_str(&format!("{}{}{}: {},\n", tab, tab, rust_name, rust_name));
+            route_output.push_str(&format!("{}{}{}: \"{}\".to_string(),\n", tab, tab, rust_name, param_values.get(rust_name.as_str()).unwrap()));
+        }
+    }
+    if !route.additional_headers.is_empty() {
+        // route_output.push_str(&format!("{}// headers: {:?} \n", tab, tab, route.additional_headers.keys()));
+        for (_, rust_name) in &route.additional_headers {
+            route_output.push_str(&format!("{}{}{}: \"{}\".to_string(),\n", tab, tab, rust_name, param_values.get(rust_name.as_str()).unwrap()));
+        }
+    }
+    route_output.push_str(&format!("{}}}\n", tab));
+    route_output.push_str(");\n");
+
+
+
+    // end of test...
+    route_output.push_str("}\n\n");
+    Ok(route_output)
+}
 pub fn generate_readme(
     _models: &[ModelType],
     _requests: &[RequestModel],

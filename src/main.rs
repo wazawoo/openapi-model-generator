@@ -142,6 +142,11 @@ fn main() -> Result<()> {
     let output_lib_path = args.output.join("mod.rs");
     fs::write(&output_lib_path, rust_lib.trim())?;
 
+    // let rust_lib = generator::g()?;
+    let tests = generator::generate_tests(&models, &requests, &responses, &routes, &models_to_skip, &type_name_replacements)?;
+    let output_lib_path = args.output.join("tests.rs");
+    fs::write(&output_lib_path, tests.trim())?;
+
     let readme = generator::generate_readme(&models, &requests, &responses, &routes, &models_to_skip, &type_name_replacements)?;
     let output_lib_path = args.output.join("README.md");
     fs::write(&output_lib_path, readme.trim())?;
