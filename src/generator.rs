@@ -542,7 +542,7 @@ pub fn generate_routes(
     file_contents.push_str("use reqwest::header::HeaderMap;\n");
     file_contents.push_str("use reqwest::header::HeaderName;\n");
     file_contents.push_str("use reqwest::header::HeaderValue;\n\n");
-    file_contents.push_str("use crate::models::*;\n");
+    file_contents.push_str("use crate::generated::models::*;\n");
     file_contents.push_str("use crate::bird_client::BirdRequest;\n\n");
 
     file_contents.push_str(&routes_output);
