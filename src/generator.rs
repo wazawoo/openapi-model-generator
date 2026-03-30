@@ -817,6 +817,7 @@ pub fn generate_tests(
 
     code.push_str("#[cfg(test)]\n");
     code.push_str("mod tests {\n");
+    code.push_str("use log::info;\n");
     code.push_str("use crate::generated::routes::*;\n");
     code.push_str("use crate::bird_client::*;\n\n");
 
@@ -880,7 +881,7 @@ pub fn generate_test(
     test_output.push_str(&format!("\t}};\n"));
 
     test_output.push_str("\tmatch client.do_request(&req).await {\n");
-    test_output.push_str("\t\tOk(_) => { println!(\"✅ {}\", req.path()); },\n");
+    test_output.push_str("\t\tOk(_) => { info!(\"✅ {}\", req.path()); },\n");
     test_output.push_str("\t\tErr(e) => { panic!(\"❌ {}: {}\", req.path(), e); }\n");
     test_output.push_str(&format!("\t}};\n"));
 
