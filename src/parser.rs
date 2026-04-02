@@ -167,6 +167,7 @@ fn process_operation(
     backup_name: &str,
 ) -> Result<Vec<ModelType>> {
     let mut inline_models = Vec::new();
+    let operation_name = to_pascal_case(operation.operation_id.as_deref().unwrap_or(backup_name));
 
     // Parse request body
     if let Some(request_body_ref) = &operation.request_body {
@@ -190,9 +191,6 @@ fn process_operation(
         if let Some((request_body, is_required)) = request_body_data {
             for (content_type, media_type) in &request_body.content {
                 if let Some(schema) = &media_type.schema {
-                    let operation_name =
-                        to_pascal_case(operation.operation_id.as_deref().unwrap_or(backup_name));
-
                     let schema_type = if is_inline {
                         if let ReferenceOr::Item(schema_item) = schema {
                             if matches!(schema_item.schema_kind, SchemaKind::Type(Type::Object(_)))
@@ -229,8 +227,6 @@ fn process_operation(
         if let ReferenceOr::Item(response) = response_ref {
             for (content_type, media_type) in &response.content {
                 if let Some(schema) = &media_type.schema {
-                    let operation_name =
-                        to_pascal_case(operation.operation_id.as_deref().unwrap_or(backup_name));
                     let mut is_array = false;
                     let schema_type = if let ReferenceOr::Item(schema_item) = schema {
                         if matches!(schema_item.schema_kind, SchemaKind::Type(Type::Object(_))) {
@@ -262,7 +258,7 @@ fn process_operation(
                         schema_type
                     };
                     let response = ResponseModel {
-                        name: operation_name,
+                        name: operation_name.clone(),
                         status_code: format!("{}", status),
                         content_type: content_type.clone(),
                         schema,
