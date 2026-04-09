@@ -134,7 +134,7 @@ fn main() -> Result<()> {
     let output_models_path = args.output.join("models.rs");
     fs::write(&output_models_path, rust_code.trim())?;
 
-    let rust_routes = generator::generate_routes(&routes, &type_name_replacements)?;
+    let rust_routes = generator::generate_routes(&routes, args.get_path_params_from_path, &type_name_replacements)?;
     let output_routes_path = args.output.join("routes.rs");
     fs::write(&output_routes_path, rust_routes.trim())?;
 
