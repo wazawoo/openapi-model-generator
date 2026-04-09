@@ -523,6 +523,7 @@ fn generate_type_alias(type_alias: &TypeAliasModel) -> Result<String> {
 
 pub fn generate_routes(
     routes: &[RouteModel],
+    get_path_params_from_path: bool,
     type_name_replacements: &IndexMap<String, String>,
 ) -> Result<String> {
     let mut routes_output = "".to_string();
@@ -530,6 +531,7 @@ pub fn generate_routes(
     for route in routes {
         let route_output = generate_route_model(
             &route,
+            get_path_params_from_path,
             type_name_replacements.clone()
         )?;
         routes_output.push_str(&route_output);
@@ -557,48 +559,12 @@ pub fn create_route_model(
     response_schema: String,
     op: &Operation,
 ) -> Result<RouteModel> {
-    // let mut q_params_string = "".to_string();
-    // let mut h_params_string = "".to_string();
-    // let mut p_params_string = "".to_string();
-    // let mut c_params_string = "".to_string();
-    
-    let mut query_params: IndexMap<String, String> = IndexMap::new();
-    let mut additional_headers: IndexMap<String, String> = IndexMap::new();
-
+    let mut params: Vec<Parameter> = vec![];
     for param in op.parameters.clone() {
-        if let ReferenceOr::Item(_param) = param {
-            match _param {
-                openapiv3::Parameter::Query { parameter_data, allow_reserved: _, style: _, allow_empty_value: _} => {
-                    // dbg!(param);
-                    let rust_name = to_snake_case(&parameter_data.name);
-                    query_params.insert(
-                        parameter_data.name, 
-                        rust_name
-                    );
-                },
-                openapiv3::Parameter::Header { parameter_data, style: _ } => {
-                   let rust_name = parameter_data.name
-                        .replace('-',"_")
-                        .to_lowercase();
-                    additional_headers.insert(
-                        parameter_data.name,
-                        rust_name
-                    );
-                },
-                openapiv3::Parameter::Path { parameter_data: _, style: _ } => {
-                    // let name = parameter_data.name;
-                    // will want these in a moment... once include path params in schema
-                    // p_params_string.push_str(&format!("P:{}, ", name).to_string());
-                },
-                openapiv3::Parameter::Cookie { parameter_data: _, style: _ } => {
-                    // let name = parameter_data.name;
-                    // c_params_string.push_str(&format!("C:{}, ", name).to_string());
-                },
-            }
+        if let ReferenceOr::Item(param) = param {
+            params.push(param);
         }
     }
-
-    // maybe unique to my dataset, but grabbing path params from path string (they arent in op.params above)
     let mut format_path = "".to_string();
     let mut path_params: IndexMap<String, String> = IndexMap::new();
     let mut in_param = false;
@@ -633,10 +599,7 @@ pub fn create_route_model(
             path: path.to_string(), 
             backup_name,
             method,
-            format_path,
-            query_params,
-            path_params,
-            additional_headers,
+            params,
             response_schema
         }
     )
@@ -644,34 +607,67 @@ pub fn create_route_model(
 
 pub fn generate_route_model(
     route: &RouteModel,
+    get_path_params_from_path: bool,
     type_name_replacements: IndexMap<String, String>
 ) -> Result<String> {
     let mut route_output = String::new();
-    // // ignoring p params and c params for now...
-    // let mut p_params_string = "".to_string();
-    // let mut c_params_string = "".to_string();
 
-    // Query params
-    let mut q_params_string = "".to_string();
-    for (q_param, _rust_name) in &route.query_params {
-        // this is just one substitution. rightmost brackets are escaped.
-        // after substitution looks like: "?qParam={}"
-        if q_params_string.is_empty() {
-            q_params_string.push_str(&format!("?{}={{}}", q_param).to_string());
-        } else {
-            q_params_string.push_str(&format!("&{}={{}}", q_param).to_string());
+    let mut path_param_names: Vec<String> = vec![];
+    let mut query_param_names: Vec<String> = vec![];
+    let mut qp_required = HashMap::<String, bool>::new();
+    let mut header_names: Vec<String> = vec![];
+    
+    let mut format_path = "".to_string();
+    let mut in_param = false;
+    let mut current_param = "".to_string();
+    for ch in route.path.chars() {
+        match ch {
+            '{' => {
+                in_param = true;
+                current_param = "".to_string();
+                format_path.push(ch);
+            },
+            '}' => {
+                in_param = false;
+                if get_path_params_from_path {
+                    path_param_names.push(current_param.clone());
+                }
+                format_path.push(ch);
+            },
+            _ => {
+                if in_param {
+                    current_param.push(ch);
+                } else {
+                    format_path.push(ch);
+                }
+            }
         }
     }
 
-    // string of args for "format!()"
-    let mut format_path = format!("\"{}{}\"", route.format_path, q_params_string);
-    for (_param, rust_name) in route.path_params.clone() {
-        format_path.push_str(&format!(", self.{}", rust_name));
+    for param in &route.params {
+        match param {
+            openapiv3::Parameter::Query { parameter_data, allow_reserved: _, style: _, allow_empty_value: _} => {
+                query_param_names.push(parameter_data.name.clone());
+                qp_required.insert(
+                    parameter_data.name.clone(), 
+                    parameter_data.required
+                );
+            },
+            openapiv3::Parameter::Header { parameter_data, style: _ } => {
+                header_names.push(parameter_data.name.clone());
+            },
+            openapiv3::Parameter::Path { parameter_data, style: _ } => {
+                if get_path_params_from_path {
+                    continue;
+                }
+                path_param_names.push(parameter_data.name.clone());
+            },
+            openapiv3::Parameter::Cookie { parameter_data: _, style: _ } => {
+                // TODO: not implemented
+            },
+        }
     }
-    for (_param, rust_name) in route.query_params.clone() {
-        format_path.push_str(&format!(", self.{}", rust_name));
-    }
-    
+
     let func_name = &route.backup_name;
     let tab = "    ";
 
@@ -681,36 +677,32 @@ pub fn generate_route_model(
         &route.response_schema
     };
 
-    // request model
+    // TODO: parameter types, docs
     route_output.push_str(&format!("pub struct {} {{\n", func_name));
-    if !route.path_params.is_empty() {
-        route_output.push_str(&format!("{}// path params: {:?} \n", tab, route.path_params.keys()));
-        for (_, rust_name) in &route.path_params {
-            route_output.push_str(&format!("{}pub {}: String,\n", tab, rust_name));
+    if !path_param_names.is_empty() {
+        route_output.push_str(&format!("{}// path params: {:?} \n", tab, path_param_names));
+        for path_param_name in &path_param_names {
+            route_output.push_str(&format!("{}pub {}: String,\n", tab, to_snake_case(&path_param_name)));
         }
     }
-    if !route.query_params.is_empty() {
-        route_output.push_str(&format!("{}// q params: {:?} \n", tab, route.query_params.keys()));
-        for (_, rust_name) in &route.query_params {
-            route_output.push_str(&format!("{}pub {}: String,\n", tab, rust_name));
+    if !query_param_names.is_empty() {
+        route_output.push_str(&format!("{}// query params: {:?} \n", tab, query_param_names));
+        for query_param_name in &query_param_names {
+            if qp_required.get(query_param_name).is_some_and(|req| *req) {
+                route_output.push_str(&format!("{}pub {}: String,\n", tab, to_snake_case(&query_param_name)));
+            } else {
+                route_output.push_str(&format!("{}pub {}: Option<String>,\n", tab, to_snake_case(&query_param_name)));
+            }
         }
     }
-    if !route.additional_headers.is_empty() {
-        route_output.push_str(&format!("{}// headers: {:?} \n", tab, route.additional_headers.keys()));
-        for (_, rust_name) in &route.additional_headers {
-            route_output.push_str(&format!("{}pub {}: String,\n", tab, rust_name));
+    if !header_names.is_empty() {
+        route_output.push_str(&format!("{}// headers: {:?} \n", tab, header_names));
+        for header_name in &header_names {
+            route_output.push_str(&format!("{}pub {}: String,\n", tab, to_snake_case(&header_name)));
         }
     }
     route_output.push_str("}\n");
 
-    // if !p_params_string.is_empty() {
-    //     route_output.push_str(&format!("{}// p params: {} \n", tab, p_params_string));
-    // }
-    // if !c_params_string.is_empty() {
-    //     route_output.push_str(&format!("{}// c params: {} \n", tab, c_params_string));
-    // }
-
-    // put params here. some url, some path. should have type too...
     route_output.push_str(&format!("impl BirdRequest for {} {{\n", func_name));
     route_output.push_str(&format!("{}type ResponseType = {};\n", tab, response_type));
     route_output.push_str(&format!("{}const METHOD: Method = Method::{};\n", tab, route.method));
@@ -720,29 +712,53 @@ pub fn generate_route_model(
         route_output.push_str(&format!("{}const RETURNS_CSV: bool = true;\n", tab));
     }
 
+    let format_path_args_string = path_param_names
+        .iter()
+        .map(|param|
+            format!("self.{}", to_snake_case(param))
+        )
+        .collect::<Vec<String>>()
+        .join(", ");
+
     // path()
-    route_output.push_str(&format!("{}fn path(&self) -> String {{\n", tab));
-    route_output.push_str(&format!("{}{}format!({})\n", tab, tab, format_path));
+    route_output.push_str(&format!("\tfn path(&self) -> String {{\n"));
+    if query_param_names.is_empty() {
+        if format_path_args_string.is_empty() {
+            route_output.push_str(&format!("\t\t\"{}\".to_string()\n", format_path));
+        } else {
+            route_output.push_str(&format!("\t\tformat!(\"{}\", {})\n", format_path, format_path_args_string));
+        }
+    } else {
+        route_output.push_str(&format!("\t\tlet path = format!(\"{}\"{});\n", format_path, format_path_args_string));
+        route_output.push_str(&format!("\t\tlet mut query_params: Vec<String> = vec![];\n"));
+        for param_name in query_param_names.iter() {
+            if qp_required.get(param_name).is_some_and(|req| *req) {
+                route_output.push_str(&format!("\t\tquery_params.push(format!(\"{}={{}}\", self.{}));\n", param_name, to_snake_case(param_name)));
+            } else {
+                route_output.push_str(&format!("\t\tif let Some({}) = &self.{} {{ query_params.push(format!(\"{}={{}}\", {})); }}\n", to_snake_case(param_name), to_snake_case(param_name), param_name, to_snake_case(param_name)));
+            }
+        }
+        route_output.push_str("\t\tlet mut query = query_params.join(\"&\");\n");
+        route_output.push_str("\t\tif !query.is_empty() { query = format!(\"?{}\", query); }\n");
+        route_output.push_str("\t\tformat!(\"{path}{query}\")\n");
+    }
     route_output.push_str(&format!("{}}}\n", tab));
 
     // headers (if any)
-    route_output.push_str(&format!("{}fn additional_headers(&self) -> HeaderMap {{\n", tab));
-    if route.additional_headers.is_empty() {
-        route_output.push_str(&format!("{}{}HeaderMap::new()\n", tab, tab));
-    } else {
+    if !header_names.is_empty() {
+        route_output.push_str(&format!("{}fn additional_headers(&self) -> HeaderMap {{\n", tab));
         route_output.push_str(&format!("{}{}let mut map = HeaderMap::new();\n", tab, tab));
-        for (header_param, rust_name) in &route.additional_headers {
+        for header_name in &header_names {
             route_output.push_str(&format!("{}{}if let (Ok(name), Ok(value)) = (\n", tab, tab));
-            route_output.push_str(&format!("{}{}{}HeaderName::from_bytes(\"{}\".as_bytes()),\n", tab, tab, tab, header_param));
-            route_output.push_str(&format!("{}{}{}HeaderValue::from_str(&self.{})\n", tab, tab, tab, rust_name));
+            route_output.push_str(&format!("{}{}{}HeaderName::from_bytes(\"{}\".as_bytes()),\n", tab, tab, tab, header_name));
+            route_output.push_str(&format!("{}{}{}HeaderValue::from_str(&self.{})\n", tab, tab, tab, to_snake_case(&header_name)));
             route_output.push_str(&format!("{}{}) {{\n", tab, tab));
             route_output.push_str(&format!("{}{}{}map.insert(name, value);\n", tab, tab, tab));
             route_output.push_str(&format!("{}{}}}\n", tab, tab));
         }
         route_output.push_str(&format!("{}{}map\n", tab, tab));
+        route_output.push_str(&format!("{}}}\n", tab));
     }
-    route_output.push_str(&format!("{}}}\n", tab));
-
     route_output.push_str("}\n\n");
     Ok(route_output)
 }
