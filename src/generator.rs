@@ -556,7 +556,6 @@ pub fn create_route_model(
     method: String,
     response_schema: String,
     op: &Operation,
-    get_path_params_from_path: bool,
 ) -> Result<RouteModel> {
     let mut params: Vec<Parameter> = vec![];
     let mut format_path = "".to_string();
@@ -571,25 +570,6 @@ pub fn create_route_model(
             },
             '}' => {
                 in_param = false;
-                if get_path_params_from_path {
-                    params.push(Parameter::Path {
-                        parameter_data: ParameterData {
-                            name: current_param.clone(),
-                            description: None,
-                            required: true,
-                            deprecated: None,
-                            format: ParameterSchemaOrContent::Schema(ReferenceOr::Item(Schema { 
-                                schema_data: SchemaData::default(),
-                                schema_kind: SchemaKind::Type(openapiv3::Type::String(StringType::default()))
-                            })),
-                            example: Some(serde_json::Value::String(format!("{{{{{}}}}}", current_param))),
-                            examples: IndexMap::new(),
-                            explode: None,
-                            extensions: IndexMap::new(),
-                        },
-                        style: openapiv3::PathStyle::Simple
-                    })
-                }
                 format_path.push(ch);
             },
             _ => {
@@ -604,13 +584,6 @@ pub fn create_route_model(
 
     for param in op.parameters.clone() {
         if let ReferenceOr::Item(param) = param {
-            match param {
-                Parameter::Path{..} => if get_path_params_from_path {
-                    continue;
-                },
-                _ => {}
-            }
-            
             params.push(param);
         }
     }

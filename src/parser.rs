@@ -68,7 +68,6 @@ fn extract_custom_attrs(schema: &Schema) -> Option<Vec<String>> {
 
 pub fn parse_openapi(
     openapi: &OpenAPI,
-    get_path_params_from_path: bool,
 ) -> Result<(Vec<ModelType>, Vec<RequestModel>, Vec<ResponseModel>, Vec<RouteModel>)> {
     let mut models = Vec::new();
     let mut requests = Vec::new();
@@ -151,7 +150,6 @@ pub fn parse_openapi(
                 &path,
                 &method,
                 &backup_name,
-                get_path_params_from_path,
             )?;
             for model_type in inline_models {
                 let schema = model_type.name();
@@ -176,7 +174,6 @@ fn process_operation(
     path: &str,
     method: &str,
     backup_name: &str,
-    get_path_params_from_path: bool,
 ) -> Result<Vec<ModelType>> {
     let mut inline_models = Vec::new();
 
@@ -288,7 +285,6 @@ fn process_operation(
                         method.to_string(),
                         schema,
                         operation,
-                        get_path_params_from_path,
                     )?;
                     routes.push(route_model);
                 }

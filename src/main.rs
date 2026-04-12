@@ -72,7 +72,7 @@ fn main() -> Result<()> {
         serde_json::from_str(&content)?
     };
 
-    let (models, requests, responses, routes) = parser::parse_openapi(&openapi, args.get_path_params_from_path)?;
+    let (models, requests, responses, routes) = parser::parse_openapi(&openapi)?;
 
     // this one is string vec:
     //GETRefTaxonFormsSpeciesCodeResponseArrayObject200
