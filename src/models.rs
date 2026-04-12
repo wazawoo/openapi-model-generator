@@ -1,4 +1,3 @@
-use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -97,17 +96,12 @@ pub struct ResponseModel {
 pub struct RouteModel {
     /// `/blah/wow/{ohMy}/{lookAtMe}`
     pub path: String,
+    /// Replacement name in case `operation.operation_id.is_none()`
     pub backup_name: String,
     /// `GET`, etc
     pub method: String,
-    /// path with params removed: `/blah/wow/{}/{}`
-    pub format_path: String,
-    /// query param `qParam` to rust name `q_param`
-    pub query_params: IndexMap<String, String>,
-    /// path param `pParam` to rust name `p_param`
-    pub path_params: IndexMap<String, String>,
-    /// header name `ADDL-HEADER` to rust name `addl_header`
-    pub additional_headers: IndexMap<String, String>,
+    /// all params: path, query, header, and cookie
+    pub params: Vec<openapiv3::Parameter>,
     pub response_schema: String,
 }
 

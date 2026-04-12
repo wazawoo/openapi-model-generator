@@ -72,7 +72,7 @@ fn main() -> Result<()> {
         serde_json::from_str(&content)?
     };
 
-    let (models, requests, responses, routes) = parser::parse_openapi(&openapi)?;
+    let (models, requests, responses, routes) = parser::parse_openapi(&openapi, args.get_path_params_from_path)?;
 
     // this one is string vec:
     //GETRefTaxonFormsSpeciesCodeResponseArrayObject200
@@ -134,7 +134,7 @@ fn main() -> Result<()> {
     let output_models_path = args.output.join("models.rs");
     fs::write(&output_models_path, rust_code.trim())?;
 
-    let rust_routes = generator::generate_routes(&routes, args.get_path_params_from_path, &type_name_replacements)?;
+    let rust_routes = generator::generate_routes(&routes, &type_name_replacements)?;
     let output_routes_path = args.output.join("routes.rs");
     fs::write(&output_routes_path, rust_routes.trim())?;
 

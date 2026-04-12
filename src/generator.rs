@@ -1,7 +1,7 @@
-use std::sync::OnceLock;
+use std::{collections::HashMap, sync::OnceLock};
 
 use indexmap::IndexMap;
-use openapiv3::{Operation, ReferenceOr};
+use openapiv3::{Operation, Parameter, ParameterData, ParameterSchemaOrContent, ReferenceOr, Schema, SchemaData, SchemaKind, StringType};
 
 use crate::{
     Result, models::{
@@ -523,7 +523,6 @@ fn generate_type_alias(type_alias: &TypeAliasModel) -> Result<String> {
 
 pub fn generate_routes(
     routes: &[RouteModel],
-    get_path_params_from_path: bool,
     type_name_replacements: &IndexMap<String, String>,
 ) -> Result<String> {
     let mut routes_output = "".to_string();
@@ -531,7 +530,6 @@ pub fn generate_routes(
     for route in routes {
         let route_output = generate_route_model(
             &route,
-            get_path_params_from_path,
             type_name_replacements.clone()
         )?;
         routes_output.push_str(&route_output);
@@ -558,15 +556,10 @@ pub fn create_route_model(
     method: String,
     response_schema: String,
     op: &Operation,
+    get_path_params_from_path: bool,
 ) -> Result<RouteModel> {
     let mut params: Vec<Parameter> = vec![];
-    for param in op.parameters.clone() {
-        if let ReferenceOr::Item(param) = param {
-            params.push(param);
-        }
-    }
     let mut format_path = "".to_string();
-    let mut path_params: IndexMap<String, String> = IndexMap::new();
     let mut in_param = false;
     let mut current_param = "".to_string();
     for ch in path.chars() {
@@ -578,8 +571,25 @@ pub fn create_route_model(
             },
             '}' => {
                 in_param = false;
-                let rust_name = to_snake_case(&current_param);
-                path_params.insert(current_param.clone(), rust_name);
+                if get_path_params_from_path {
+                    params.push(Parameter::Path {
+                        parameter_data: ParameterData {
+                            name: current_param.clone(),
+                            description: None,
+                            required: true,
+                            deprecated: None,
+                            format: ParameterSchemaOrContent::Schema(ReferenceOr::Item(Schema { 
+                                schema_data: SchemaData::default(),
+                                schema_kind: SchemaKind::Type(openapiv3::Type::String(StringType::default()))
+                            })),
+                            example: Some(serde_json::Value::String(format!("{{{{{}}}}}", current_param))),
+                            examples: IndexMap::new(),
+                            explode: None,
+                            extensions: IndexMap::new(),
+                        },
+                        style: openapiv3::PathStyle::Simple
+                    })
+                }
                 format_path.push(ch);
             },
             _ => {
@@ -589,6 +599,19 @@ pub fn create_route_model(
                     format_path.push(ch);
                 }
             }
+        }
+    }
+
+    for param in op.parameters.clone() {
+        if let ReferenceOr::Item(param) = param {
+            match param {
+                Parameter::Path{..} => if get_path_params_from_path {
+                    continue;
+                },
+                _ => {}
+            }
+            
+            params.push(param);
         }
     }
 
@@ -607,7 +630,6 @@ pub fn create_route_model(
 
 pub fn generate_route_model(
     route: &RouteModel,
-    get_path_params_from_path: bool,
     type_name_replacements: IndexMap<String, String>
 ) -> Result<String> {
     let mut route_output = String::new();
@@ -629,9 +651,6 @@ pub fn generate_route_model(
             },
             '}' => {
                 in_param = false;
-                if get_path_params_from_path {
-                    path_param_names.push(current_param.clone());
-                }
                 format_path.push(ch);
             },
             _ => {
@@ -657,9 +676,6 @@ pub fn generate_route_model(
                 header_names.push(parameter_data.name.clone());
             },
             openapiv3::Parameter::Path { parameter_data, style: _ } => {
-                if get_path_params_from_path {
-                    continue;
-                }
                 path_param_names.push(parameter_data.name.clone());
             },
             openapiv3::Parameter::Cookie { parameter_data: _, style: _ } => {
@@ -729,7 +745,11 @@ pub fn generate_route_model(
             route_output.push_str(&format!("\t\tformat!(\"{}\", {})\n", format_path, format_path_args_string));
         }
     } else {
-        route_output.push_str(&format!("\t\tlet path = format!(\"{}\"{});\n", format_path, format_path_args_string));
+        if format_path_args_string.is_empty() {
+            route_output.push_str(&format!("\t\tlet path = format!(\"{}\");\n", format_path));
+        } else {
+            route_output.push_str(&format!("\t\tlet path = format!(\"{}\", {});\n", format_path, format_path_args_string));
+        }
         route_output.push_str(&format!("\t\tlet mut query_params: Vec<String> = vec![];\n"));
         for param_name in query_param_names.iter() {
             if qp_required.get(param_name).is_some_and(|req| *req) {
@@ -870,29 +890,30 @@ pub fn generate_test(
         ("species_grouping", "merlin"),
         ("accept_language", "en"),
         ("loc_id", "L99381"),
+
+        // my custom ones:
+        ("max_results", "50")
     ]);
 
     // request model
     let func_name = &route.backup_name;
     test_output.push_str(&format!("\tlet req = {} {{\n", func_name));
-    if !route.path_params.is_empty() {
-        // route_output.push_str(&format!("{}// path params: {:?} \n", tab, route.path_params.keys()));
-        for (_, rust_name) in &route.path_params {
-            test_output.push_str(&format!("\t\t{}: \"{}\".to_string(),\n", rust_name, param_values.get(rust_name.as_str()).unwrap()));
+    for param in &route.params {
+        match param.clone() {
+            Parameter::Query { parameter_data, allow_reserved, style, allow_empty_value } => {
+                if !parameter_data.required {
+                    continue;
+                }
+            },
+            Parameter::Header { parameter_data, style } => {
+            },
+            Parameter::Path { parameter_data, style } => {
+            },
+            Parameter::Cookie { parameter_data, style } => continue,
         }
-    }
-    if !route.query_params.is_empty() {
-        // route_output.push_str(&format!("{}// q params: {:?} \n", tab, tab, route.query_params.keys()));
-        for (_, rust_name) in &route.query_params {
-            // route_output.push_str(&format!("{}{}{}: {},\n", tab, tab, rust_name, rust_name));
-            test_output.push_str(&format!("\t\t{}: \"{}\".to_string(),\n", rust_name, param_values.get(rust_name.as_str()).unwrap()));
-        }
-    }
-    if !route.additional_headers.is_empty() {
-        // route_output.push_str(&format!("{}// headers: {:?} \n", tab, tab, route.additional_headers.keys()));
-        for (_, rust_name) in &route.additional_headers {
-            test_output.push_str(&format!("\t\t{}: \"{}\".to_string(),\n", rust_name, param_values.get(rust_name.as_str()).unwrap()));
-        }
+
+        let rust_name = to_snake_case(&param.clone().parameter_data().name);
+        test_output.push_str(&format!("\t\t{}: \"{}\".to_string(),\n", rust_name, param_values.get(rust_name.as_str()).unwrap()));
     }
     test_output.push_str(&format!("\t}};\n"));
 
