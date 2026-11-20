@@ -6,22 +6,27 @@ use std::fs;
 use std::io;
 use std::path::PathBuf;
 
-pub fn validate_input_file(path: &PathBuf) -> Result<()> {
-    println!("Checking input file: {path:?}");
-
+fn ensure_file_exists(path: &PathBuf, arg_name: &str) -> Result<()> {
     if !path.exists() {
         return Err(Error::from(io::Error::new(
             io::ErrorKind::NotFound,
-            format!("Input path {path:?} does not exist"),
+            format!("{arg_name} path {path:?} does not exist"),
         )));
     }
 
     if !path.is_file() {
         return Err(Error::from(io::Error::new(
             io::ErrorKind::InvalidInput,
-            format!("Input path {path:?} is not a file"),
+            format!("{arg_name} path {path:?} is not a file"),
         )));
     }
+
+    Ok(())
+}
+
+pub fn validate_input_file(path: &PathBuf) -> Result<()> {
+    println!("Checking input file: {path:?}");
+    ensure_file_exists(path, "Input")?;
 
     fs::File::open(path).map(|_| {
         println!("Input file is valid and readable.");
@@ -51,6 +56,68 @@ pub fn create_output_dir(path: &PathBuf) -> Result<()> {
     }
 }
 
+pub fn get_models_to_skip(csv_path: &PathBuf) -> Result<Vec<String>> {
+    ensure_file_exists(csv_path, "Skip models csv")?;
+
+    let mut models_to_skip: Vec<String> = vec![];
+    let expected_column_count = 1;
+
+    let mut rdr = csv::ReaderBuilder::new()
+        .has_headers(false)
+        .flexible(false)
+        .from_path(csv_path)?;
+    for (i, result) in rdr.records().enumerate() {
+        match result {
+            Ok(record) => {
+                println!("{:?}", record);
+                let row_size = record.len();
+                if row_size != expected_column_count {
+                    return Err(Error::CsvOther(format!("Row {i} had {row_size} columns (expected {expected_column_count})")));
+                }
+
+                if let Some(model) = record.get(0) {
+                    models_to_skip.push(model.into());
+                }
+            },
+            Err(e) => {
+                return Err(Error::Csv(e))
+            },
+        }
+    }
+    Ok(models_to_skip)
+}
+
+pub fn get_model_name_replacements(csv_path: &PathBuf) -> Result<IndexMap<String, String>> {
+    ensure_file_exists(csv_path, "Model name replacements csv")?;
+
+    let mut model_name_replacements: IndexMap<String, String> = IndexMap::new();
+    let expected_column_count = 2;
+
+    let mut rdr = csv::ReaderBuilder::new()
+        .has_headers(false)
+        .flexible(false)
+        .from_path(csv_path)?;
+    for (i, result) in rdr.records().enumerate() {
+        match result {
+            Ok(record) => {
+                println!("{:?}", record);
+                let row_size = record.len();
+                if row_size != expected_column_count {
+                    return Err(Error::CsvOther(format!("Row {i} had {row_size} columns (expected {expected_column_count})")));
+                }
+
+                if let Some(model) = record.get(0) && let Some(replacement) = record.get(1) {
+                    model_name_replacements.insert(model.into(), replacement.into());
+                }
+            },
+            Err(e) => {
+                return Err(Error::Csv(e))
+            },
+        }
+    }
+    Ok(model_name_replacements)
+}
+
 fn main() -> Result<()> {
     let args = Args::parse();
 
@@ -64,6 +131,16 @@ fn main() -> Result<()> {
         std::process::exit(1);
     }
 
+    let mut models_to_skip: Vec<String> = vec![];
+    if let Some(skip_path) = args.skip_models_csv && let Ok(to_skip) = get_models_to_skip(&skip_path) {
+        models_to_skip = to_skip;
+    }
+
+    let mut type_name_replacements: IndexMap<String, String> = IndexMap::new();
+    if let Some(replace_path) = args.replace_models_csv && let Ok(replacements) = get_model_name_replacements(&replace_path) {
+        type_name_replacements = replacements;
+    }
+
     let content = fs::read_to_string(&args.input)?;
 
     let openapi: OpenAPI = if args.input.extension().is_some_and(|ext| ext == "yaml") {
@@ -73,62 +150,6 @@ fn main() -> Result<()> {
     };
 
     let (models, requests, responses, routes) = parser::parse_openapi(&openapi)?;
-
-    // this one is string vec:
-    //GETRefTaxonFormsSpeciesCodeResponseArrayObject200
-
-    // this one is a type alias...
-    let models_to_skip: Vec<String> = vec![
-        "GETRefTaxonFormsSpeciesCodeResponseArrayObject200".to_string(),
-        "GETDataObsRegionCodeRecentResponseArrayObject200".to_string(),
-        "GETDataObsRegionCodeRecentSpeciesCodeResponseArrayObject200".to_string(),
-        "GETDataObsGeoRecentResponseArrayObject200".to_string(),
-        "GETRefRegionListRegionTypeParentRegionCodeResponseArrayObject200".to_string(),
-        "GETDataObsGeoRecentSpeciesCodeResponseArrayObject200".to_string(),
-        "GETDataNearestGeoRecentSpeciesCodeResponseArrayObject200".to_string(),
-        "GETDataObsGeoRecentNotableResponseArrayObject200".to_string(),
-        "GETDataObsRegionCodeHistoricYMDResponseArrayObject200".to_string(),
-        "Parent".to_string(),
-    ];
-
-    let mut type_name_replacements: IndexMap<String, String> = IndexMap::new();
-    type_name_replacements.insert("Vec<GETDataObsRegionCodeRecentNotableResponseArrayObject200>".to_string(), "Vec<Observation>".to_string());
-    type_name_replacements.insert("GETDataObsRegionCodeRecentNotableResponseArrayObject200".to_string(), "Observation".to_string());
-    
-    type_name_replacements.insert("Vec<GETDataObsRegionCodeRecentSpeciesCodeResponseArrayObject200>".to_string(), "Vec<Observation>".to_string());
-    type_name_replacements.insert("GETDataObsRegionCodeRecentSpeciesCodeResponseArrayObject200".to_string(), "Observation".to_string());
-    
-    type_name_replacements.insert("Vec<GETDataObsGeoRecentResponseArrayObject200>".to_string(), "Vec<Observation>".to_string());
-    type_name_replacements.insert("GETDataObsGeoRecentResponseArrayObject200".to_string(), "Observation".to_string());
-    
-    type_name_replacements.insert("Vec<GETDataObsRegionCodeRecentResponseArrayObject200>".to_string(), "Vec<Observation>".to_string());
-    type_name_replacements.insert("GETDataObsRegionCodeRecentResponseArrayObject200".to_string(), "Observation".to_string());
-    type_name_replacements.insert("GETProductChecklistViewSubIdResponse200".to_string(), "Checklist".to_string());
-    
-    type_name_replacements.insert("Vec<GETRefAdjacentRegionCodeResponseArrayObject200>".to_string(), "Vec<RegionCode>".to_string());
-    type_name_replacements.insert("GETRefAdjacentRegionCodeResponseArrayObject200".to_string(), "RegionCode".to_string());
-    
-    type_name_replacements.insert("Vec<GETRefRegionListRegionTypeParentRegionCodeResponseArrayObject200>".to_string(), "Vec<RegionCode>".to_string());
-    
-    type_name_replacements.insert("GETRefHotspotInfoLocIdResponse200".to_string(), "Hotspot".to_string());
-    type_name_replacements.insert("Vec<GETRefTaxaLocalesEbirdResponseArrayObject200>".to_string(), "Vec<TaxaLocale>".to_string());
-    type_name_replacements.insert("Vec<GETRefTaxonomyVersionsResponseArrayObject200>".to_string(), "Vec<TaxonomyVersion>".to_string());
-    type_name_replacements.insert("Vec<GETRefSppgroupSpeciesGroupingResponseArrayObject200>".to_string(), "Vec<TaxonomicGroup>".to_string());
-    type_name_replacements.insert("GETRefRegionInfoRegionCodeResponse200".to_string(), "RegionInfo".to_string());
-    type_name_replacements.insert("Vec<GETRefTaxonFormsSpeciesCodeResponseArrayObject200>".to_string(), "Vec<String>".to_string());
-    type_name_replacements.insert("Vec<GETDataObsGeoRecentSpeciesCodeResponseArrayObject200>".to_string(), "Vec<Observation>".to_string());
-    type_name_replacements.insert("Vec<GETDataNearestGeoRecentSpeciesCodeResponseArrayObject200>".to_string(), "Vec<Observation>".to_string());
-    type_name_replacements.insert("Vec<GETDataObsGeoRecentNotableResponseArrayObject200>".to_string(), "Vec<Observation>".to_string());
-    type_name_replacements.insert("Vec<GETDataObsRegionCodeHistoricYMDResponseArrayObject200>".to_string(), "Vec<Observation>".to_string());
-
-    type_name_replacements.insert("GETRefTaxaLocalesEbirdResponseArrayObject200".to_string(), "TaxaLocale".to_string());
-    type_name_replacements.insert("GETRefTaxonomyVersionsResponseArrayObject200".to_string(), "TaxonomyVersion".to_string());
-    type_name_replacements.insert("GETRefSppgroupSpeciesGroupingResponseArrayObject200".to_string(), "TaxonomicGroup".to_string());
-    type_name_replacements.insert("GETRefTaxonFormsSpeciesCodeResponseArrayObject200".to_string(), "String".to_string());
-    type_name_replacements.insert("GETDataObsGeoRecentSpeciesCodeResponseArrayObject200".to_string(), "Observation".to_string());
-    type_name_replacements.insert("GETDataNearestGeoRecentSpeciesCodeResponseArrayObject200".to_string(), "Observation".to_string());
-    type_name_replacements.insert("GETDataObsGeoRecentNotableResponseArrayObject200".to_string(), "Observation".to_string());
-    type_name_replacements.insert("Parent".to_string(), "Box<RegionInfo>".to_string());
 
     let rust_code = generator::generate_models(&models, &requests, &responses, &models_to_skip, &type_name_replacements)?;
     let output_models_path = args.output.join("models.rs");
