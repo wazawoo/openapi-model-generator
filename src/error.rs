@@ -13,6 +13,12 @@ pub enum Error {
 
     #[error("OpenAPI parsing error: {0}")]
     OpenApi(String),
+    
+    #[error("CSV parsing error: {0}")]
+    Csv(#[from] csv::Error),
+
+    #[error("CSV parsing error: {0}")]
+    CsvOther(String),
 
     #[error("Code generation error: {0}")]
     Generation(String),

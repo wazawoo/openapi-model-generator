@@ -25,7 +25,8 @@ fn create_header() -> String {
             r#"
 //!
 //! Generated from an OAS specification by {}(v{})
-//!
+//! (wazawoo fork)
+//! 
 
 "#,
             option_env!("CARGO_PKG_NAME").unwrap_or("openapi-model-generator"),
