@@ -1,9 +1,10 @@
 use crate::{
+    Result,
+    generator::create_route_model,
     models::{
         CompositionModel, EnumModel, Field, Model, ModelType, RequestModel, ResponseModel,
-        TypeAliasModel, UnionModel, UnionType, UnionVariant,
+        RouteModel, TypeAliasModel, UnionModel, UnionType, UnionVariant,
     },
-    Result,
 };
 use indexmap::IndexMap;
 use openapiv3::{
@@ -53,11 +54,7 @@ fn extract_custom_attrs(schema: &Schema) -> Option<Vec<String>> {
                     .iter()
                     .filter_map(|v| v.as_str().map(|s| s.to_string()))
                     .collect();
-                if attrs.is_empty() {
-                    None
-                } else {
-                    Some(attrs)
-                }
+                if attrs.is_empty() { None } else { Some(attrs) }
             } else {
                 tracing::warn!(
                     "x-rust-attrs should be an array of strings, got: {:?}",
@@ -70,10 +67,16 @@ fn extract_custom_attrs(schema: &Schema) -> Option<Vec<String>> {
 
 pub fn parse_openapi(
     openapi: &OpenAPI,
-) -> Result<(Vec<ModelType>, Vec<RequestModel>, Vec<ResponseModel>)> {
+) -> Result<(
+    Vec<ModelType>,
+    Vec<RequestModel>,
+    Vec<ResponseModel>,
+    Vec<RouteModel>,
+)> {
     let mut models = Vec::new();
     let mut requests = Vec::new();
     let mut responses = Vec::new();
+    let mut routes = Vec::new();
 
     let mut added_models = HashSet::new();
 
@@ -115,7 +118,7 @@ pub fn parse_openapi(
         }
     }
 
-    // Parse paths
+    // Parse paths (check each possible method per path)
     for (path, path_item) in openapi.paths.iter() {
         let path_item = match path_item {
             ReferenceOr::Item(item) => item,
@@ -130,6 +133,8 @@ pub fn parse_openapi(
             ("PATCH", &path_item.patch),
         ];
 
+        println!("parsing path: {path}");
+
         for (method, op) in operations
             .iter()
             .filter_map(|(m, o)| o.as_ref().map(|operation| (*m, operation)))
@@ -143,27 +148,35 @@ pub fn parse_openapi(
                 op,
                 &mut requests,
                 &mut responses,
+                &mut routes,
                 schemas,
                 request_bodies,
+                &path,
+                &method,
                 &backup_name,
             )?;
             for model_type in inline_models {
-                if added_models.insert(model_type.name().to_string()) {
-                    models.push(model_type);
+                let schema = model_type.name();
+                if added_models.insert(schema.to_string()) {
+                    models.push(model_type.clone());
+                    println!("adding model: {schema}");
                 }
             }
         }
     }
 
-    Ok((models, requests, responses))
+    Ok((models, requests, responses, routes))
 }
 
 fn process_operation(
     operation: &openapiv3::Operation,
     requests: &mut Vec<RequestModel>,
     responses: &mut Vec<ResponseModel>,
+    routes: &mut Vec<RouteModel>,
     all_schemas: &IndexMap<String, ReferenceOr<Schema>>,
     request_bodies: &IndexMap<String, ReferenceOr<openapiv3::RequestBody>>,
+    path: &str,
+    method: &str,
     backup_name: &str,
 ) -> Result<Vec<ModelType>> {
     let mut inline_models = Vec::new();
@@ -261,10 +274,19 @@ fn process_operation(
                         name: operation_name.clone(),
                         status_code: format!("{}", status),
                         content_type: content_type.clone(),
-                        schema,
+                        schema: schema.clone(),
                         description: Some(response.description.clone()),
                     };
                     responses.push(response);
+
+                    let route_model = create_route_model(
+                        path.to_string(),
+                        backup_name.to_string(),
+                        method.to_string(),
+                        schema,
+                        operation,
+                    )?;
+                    routes.push(route_model);
                 }
             }
         }
@@ -1190,8 +1212,8 @@ mod tests {
         }))
         .expect("Failed to deserialize OpenAPI spec");
 
-        let (models, _requests, responses) =
-            parse_openapi(&openapi_spec).expect("Failed to parse OpenAPI spec");
+        let (models, _requests, responses, _routes) =
+            parse_openapi(&openapi_spec, false).expect("Failed to parse OpenAPI spec");
 
         // 1. Verify that response model was created
         assert_eq!(responses.len(), 1);
@@ -1256,8 +1278,8 @@ mod tests {
         }))
         .expect("Failed to deserialize OpenAPI spec");
 
-        let (models, _requests, responses) =
-            parse_openapi(&openapi_spec).expect("Failed to parse OpenAPI spec");
+        let (models, _requests, responses, _routes) =
+            parse_openapi(&openapi_spec, false).expect("Failed to parse OpenAPI spec");
 
         // 1. Verify that response model was created
         assert_eq!(responses.len(), 1);
@@ -1320,8 +1342,8 @@ mod tests {
         }))
         .expect("Failed to deserialize OpenAPI spec");
 
-        let (models, _requests, responses) =
-            parse_openapi(&openapi_spec).expect("Failed to parse OpenAPI spec");
+        let (models, _requests, responses, _routes) =
+            parse_openapi(&openapi_spec, false).expect("Failed to parse OpenAPI spec");
 
         // 1. Verify that response model was created
         assert_eq!(responses.len(), 1);
@@ -1380,8 +1402,8 @@ mod tests {
         }))
         .expect("Failed to deserialize OpenAPI spec");
 
-        let (models, requests, _responses) =
-            parse_openapi(&openapi_spec).expect("Failed to parse OpenAPI spec");
+        let (models, requests, _responses, _routes) =
+            parse_openapi(&openapi_spec, false).expect("Failed to parse OpenAPI spec");
 
         // 1. Verify that request model was created
         assert_eq!(requests.len(), 1);
@@ -1448,8 +1470,8 @@ mod tests {
         }))
         .expect("Failed to deserialize OpenAPI spec");
 
-        let (models, requests, _responses) =
-            parse_openapi(&openapi_spec).expect("Failed to parse OpenAPI spec");
+        let (models, requests, _responses, _routes) =
+            parse_openapi(&openapi_spec, false).expect("Failed to parse OpenAPI spec");
 
         // Verify that request model was created
         assert_eq!(requests.len(), 1);
@@ -1479,8 +1501,8 @@ mod tests {
         }))
         .expect("Failed to deserialize OpenAPI spec");
 
-        let (_models, requests, _responses) =
-            parse_openapi(&openapi_spec).expect("Failed to parse OpenAPI spec");
+        let (_models, requests, _responses, _routes) =
+            parse_openapi(&openapi_spec, false).expect("Failed to parse OpenAPI spec");
 
         // Verify that no request models were created
         assert!(requests.is_empty());
@@ -1515,7 +1537,8 @@ mod tests {
         }))
         .expect("Failed to deserialize OpenAPI spec");
 
-        let (models, _, _) = parse_openapi(&openapi_spec).expect("Failed to parse OpenAPI spec");
+        let (models, _, _, _) =
+            parse_openapi(&openapi_spec, false).expect("Failed to parse OpenAPI spec");
 
         // Find Post model
         let post_model = models.iter().find(|m| m.name() == "Post");
@@ -1571,7 +1594,8 @@ mod tests {
         }))
         .expect("Failed to deserialize OpenAPI spec");
 
-        let (models, _, _) = parse_openapi(&openapi_spec).expect("Failed to parse OpenAPI spec");
+        let (models, _, _, _) =
+            parse_openapi(&openapi_spec, false).expect("Failed to parse OpenAPI spec");
 
         // Find Person model
         let person_model = models.iter().find(|m| m.name() == "Person");
@@ -1638,7 +1662,8 @@ mod tests {
         }))
         .expect("Failed to deserialize OpenAPI spec");
 
-        let (models, _, _) = parse_openapi(&openapi_spec).expect("Failed to parse OpenAPI spec");
+        let (models, _, _, _) =
+            parse_openapi(&openapi_spec, false).expect("Failed to parse OpenAPI spec");
 
         // Verify that TypeAlias is created, not Struct
         let user_model = models.iter().find(|m| m.name() == "User");
@@ -1675,7 +1700,8 @@ mod tests {
         }))
         .expect("Failed to deserialize OpenAPI spec");
 
-        let (models, _, _) = parse_openapi(&openapi_spec).expect("Failed to parse OpenAPI spec");
+        let (models, _, _, _) =
+            parse_openapi(&openapi_spec, false).expect("Failed to parse OpenAPI spec");
 
         let status_model = models.iter().find(|m| m.name() == "Status");
         assert!(status_model.is_some(), "Expected Status model");
@@ -1707,7 +1733,8 @@ mod tests {
         }))
         .expect("Failed to deserialize OpenAPI spec");
 
-        let (models, _, _) = parse_openapi(&openapi_spec).expect("Failed to parse OpenAPI spec");
+        let (models, _, _, _) =
+            parse_openapi(&openapi_spec, false).expect("Failed to parse OpenAPI spec");
 
         let payment_model = models.iter().find(|m| m.name() == "Payment");
         assert!(payment_model.is_some(), "Expected Payment model");
@@ -1744,7 +1771,8 @@ mod tests {
         }))
         .expect("Failed to deserialize OpenAPI spec");
 
-        let (models, _, _) = parse_openapi(&openapi_spec).expect("Failed to parse OpenAPI spec");
+        let (models, _, _, _) =
+            parse_openapi(&openapi_spec, false).expect("Failed to parse OpenAPI spec");
 
         let user_model = models.iter().find(|m| m.name() == "User");
         assert!(user_model.is_some(), "Expected User model");
@@ -1779,7 +1807,8 @@ mod tests {
         }))
         .expect("Failed to deserialize OpenAPI spec");
 
-        let (models, _, _) = parse_openapi(&openapi_spec).expect("Failed to parse OpenAPI spec");
+        let (models, _, _, _) =
+            parse_openapi(&openapi_spec, false).expect("Failed to parse OpenAPI spec");
 
         let status_model = models.iter().find(|m| m.name() == "Status");
         assert!(status_model.is_some(), "Expected Status model");
@@ -1816,7 +1845,8 @@ mod tests {
         }))
         .expect("Failed to deserialize OpenAPI spec");
 
-        let (models, _, _) = parse_openapi(&openapi_spec).expect("Failed to parse OpenAPI spec");
+        let (models, _, _, _) =
+            parse_openapi(&openapi_spec, false).expect("Failed to parse OpenAPI spec");
 
         let user_model = models.iter().find(|m| m.name() == "User");
         assert!(user_model.is_some(), "Expected User model");
@@ -1854,7 +1884,8 @@ mod tests {
         }))
         .expect("Failed to deserialize OpenAPI spec");
 
-        let (models, _, _) = parse_openapi(&openapi_spec).expect("Failed to parse OpenAPI spec");
+        let (models, _, _, _) =
+            parse_openapi(&openapi_spec, false).expect("Failed to parse OpenAPI spec");
 
         let user_model = models.iter().find(|m| m.name() == "User");
         assert!(user_model.is_some());
@@ -1896,7 +1927,8 @@ mod tests {
         }))
         .expect("Failed to deserialize OpenAPI spec");
 
-        let (models, _, _) = parse_openapi(&openapi_spec).expect("Failed to parse OpenAPI spec");
+        let (models, _, _, _) =
+            parse_openapi(&openapi_spec, false).expect("Failed to parse OpenAPI spec");
 
         let document_model = models.iter().find(|m| m.name() == "Document");
         assert!(document_model.is_some(), "Expected Document model");
@@ -1945,7 +1977,8 @@ mod tests {
         }))
         .expect("Failed to deserialize OpenAPI spec");
 
-        let (models, _, _) = parse_openapi(&openapi_spec).expect("Failed to parse OpenAPI spec");
+        let (models, _, _, _) =
+            parse_openapi(&openapi_spec, false).expect("Failed to parse OpenAPI spec");
 
         let config_model = models.iter().find(|m| m.name() == "Configuration");
         assert!(config_model.is_some(), "Expected Configuration model");
@@ -1991,7 +2024,8 @@ mod tests {
         }))
         .expect("Failed to deserialize OpenAPI spec");
 
-        let (models, _, _) = parse_openapi(&openapi_spec).expect("Failed to parse OpenAPI spec");
+        let (models, _, _, _) =
+            parse_openapi(&openapi_spec, false).expect("Failed to parse OpenAPI spec");
 
         let product_model = models.iter().find(|m| m.name() == "Product");
         assert!(product_model.is_some(), "Expected Product model");
@@ -2036,7 +2070,8 @@ mod tests {
         }))
         .expect("Failed to deserialize OpenAPI spec");
 
-        let (models, _, _) = parse_openapi(&openapi_spec).expect("Failed to parse OpenAPI spec");
+        let (models, _, _, _) =
+            parse_openapi(&openapi_spec, false).expect("Failed to parse OpenAPI spec");
 
         let settings_model = models.iter().find(|m| m.name() == "Settings");
         assert!(settings_model.is_some(), "Expected Settings model");
@@ -2088,7 +2123,8 @@ mod tests {
         }))
         .expect("Failed to deserialize OpenAPI spec");
 
-        let (models, _, _) = parse_openapi(&openapi_spec).expect("Failed to parse OpenAPI spec");
+        let (models, _, _, _) =
+            parse_openapi(&openapi_spec, false).expect("Failed to parse OpenAPI spec");
 
         let model = models.iter().find(|m| m.name() == "ComplexModel");
         assert!(model.is_some(), "Expected ComplexModel model");

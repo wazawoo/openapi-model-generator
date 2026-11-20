@@ -93,6 +93,21 @@ pub struct ResponseModel {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RouteModel {
+    /// `/blah/wow/{ohMy}/{lookAtMe}`
+    pub path: String,
+    /// Replacement name in case `operation.operation_id.is_none()`
+    pub backup_name: String,
+    /// `GET`, etc
+    pub method: String,
+    /// all params: path, query, header, and cookie
+    pub params: Vec<openapiv3::Parameter>,
+    pub summary: String,
+    pub description: String,
+    pub response_schema: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EnumModel {
     pub name: String,
     pub variants: Vec<String>,

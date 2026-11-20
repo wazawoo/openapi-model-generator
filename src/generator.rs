@@ -1,11 +1,17 @@
 use std::sync::OnceLock;
 
+use indexmap::IndexMap;
+use openapiv3::{
+    Operation, Parameter, ParameterData, ParameterSchemaOrContent, ReferenceOr, Schema, SchemaData,
+    SchemaKind, StringType,
+};
+
 use crate::{
-    models::{
-        CompositionModel, EnumModel, Model, ModelType, RequestModel, ResponseModel, TypeAliasModel,
-        UnionModel, UnionType,
-    },
     Result,
+    models::{
+        CompositionModel, EnumModel, Model, ModelType, RequestModel, ResponseModel, RouteModel,
+        TypeAliasModel, UnionModel, UnionType,
+    },
 };
 
 bitflags::bitflags! {
@@ -23,12 +29,11 @@ fn create_header() -> String {
         format!(
             r#"
 //!
-//! Generated from an OAS specification by {}(v{})
-//!
+//! Generated from an OAS specification by {}
+//! 
 
 "#,
-            option_env!("CARGO_PKG_NAME").unwrap_or("openapi-model-generator"),
-            option_env!("CARGO_PKG_VERSION").unwrap_or("unknown")
+            option_env!("CARGO_PKG_REPOSITORY").unwrap_or("unknown")
         )
     })
     .clone()
@@ -138,6 +143,8 @@ pub fn generate_models(
     models: &[ModelType],
     requests: &[RequestModel],
     responses: &[ResponseModel],
+    models_to_skip: &[String],
+    type_name_replacements: &IndexMap<String, String>,
 ) -> Result<String> {
     // First, generate all model code to determine which imports are needed
     let mut models_code = String::new();
@@ -146,7 +153,14 @@ pub fn generate_models(
     for model_type in models {
         match model_type {
             ModelType::Struct(model) => {
-                models_code.push_str(&generate_model(model, &mut required_uses)?);
+                if models_to_skip.contains(&model.name) {
+                    continue;
+                }
+                models_code.push_str(&generate_model(
+                    model,
+                    &mut required_uses,
+                    type_name_replacements,
+                )?);
             }
             ModelType::Union(union) => {
                 models_code.push_str(&generate_union(union)?);
@@ -158,6 +172,9 @@ pub fn generate_models(
                 models_code.push_str(&generate_enum(enum_model)?);
             }
             ModelType::TypeAlias(type_alias) => {
+                if models_to_skip.contains(&type_alias.name) {
+                    continue;
+                }
                 models_code.push_str(&generate_type_alias(type_alias)?);
             }
         }
@@ -168,7 +185,7 @@ pub fn generate_models(
     }
 
     for response in responses {
-        models_code.push_str(&generate_response_model(response)?);
+        models_code.push_str(&generate_response_model(response, &type_name_replacements)?);
     }
 
     // Determine which imports are actually needed
@@ -206,12 +223,22 @@ pub fn generate_models(
     Ok(output)
 }
 
-fn generate_model(model: &Model, required_uses: &mut RequiredUses) -> Result<String> {
+fn generate_model(
+    model: &Model,
+    required_uses: &mut RequiredUses,
+    type_name_replacements: &IndexMap<String, String>,
+) -> Result<String> {
     let mut output = String::new();
+
+    let model_type = if let Some(replacement) = type_name_replacements.get(&model.name) {
+        replacement
+    } else {
+        &model.name
+    };
 
     output.push_str(&generate_description_docs(
         &model.description,
-        &model.name,
+        model_type,
         "",
     ));
 
@@ -222,10 +249,10 @@ fn generate_model(model: &Model, required_uses: &mut RequiredUses) -> Result<Str
         output.push_str("#[derive(Debug, Clone, Serialize, Deserialize)]\n");
     }
 
-    output.push_str(&format!("pub struct {} {{\n", model.name));
+    output.push_str(&format!("pub struct {} {{\n", model_type));
 
     for field in &model.fields {
-        let field_type = match field.field_type.as_str() {
+        let _field_type = match field.field_type.as_str() {
             "String" => "String",
             "f64" => "f64",
             "i64" => "i64",
@@ -243,6 +270,12 @@ fn generate_model(model: &Model, required_uses: &mut RequiredUses) -> Result<Str
                 "Uuid"
             }
             _ => &field.field_type,
+        };
+
+        let field_type = if let Some(replacement) = type_name_replacements.get(_field_type) {
+            replacement
+        } else {
+            _field_type
         };
 
         let mut lowercased_name = to_snake_case(field.name.as_str());
@@ -301,12 +334,21 @@ fn generate_request_model(request: &RequestModel) -> Result<String> {
     Ok(output)
 }
 
-fn generate_response_model(response: &ResponseModel) -> Result<String> {
+fn generate_response_model(
+    response: &ResponseModel,
+    type_name_replacements: &IndexMap<String, String>,
+) -> Result<String> {
     if response.name.is_empty() || response.name == EMPTY_RESPONSE_NAME {
         return Ok(String::new());
     }
 
     let type_name = format!("{}{}", response.name, response.status_code);
+
+    let response_type = if let Some(replacement) = type_name_replacements.get(&response.schema) {
+        replacement
+    } else {
+        &response.schema
+    };
 
     let mut output = String::new();
 
@@ -318,7 +360,7 @@ fn generate_response_model(response: &ResponseModel) -> Result<String> {
 
     output.push_str("#[derive(Debug, Clone, Deserialize)]\n");
     output.push_str(&format!("pub struct {type_name} {{\n"));
-    output.push_str(&format!("    pub body: {},\n", response.schema));
+    output.push_str(&format!("    pub body: {},\n", response_type));
     output.push_str("}\n");
 
     Ok(output)
@@ -494,6 +536,318 @@ fn generate_type_alias(type_alias: &TypeAliasModel) -> Result<String> {
     Ok(output)
 }
 
+pub fn generate_routes(
+    routes: &[RouteModel],
+    type_name_replacements: &IndexMap<String, String>,
+) -> Result<String> {
+    let mut routes_output = "".to_string();
+
+    for route in routes {
+        let route_output = generate_route_model(&route, type_name_replacements.clone())?;
+        routes_output.push_str(&route_output);
+    }
+
+    // write fully clears the file, so i can only call it once
+    let mut file_contents = "".to_string();
+
+    file_contents.push_str("use reqwest::Method;\n");
+    file_contents.push_str("use reqwest::header::HeaderMap;\n");
+    file_contents.push_str("use reqwest::header::HeaderName;\n");
+    file_contents.push_str("use reqwest::header::HeaderValue;\n\n");
+    file_contents.push_str("use crate::generated::models::*;\n");
+    file_contents.push_str("use crate::bird_client::BirdRequest;\n\n");
+
+    file_contents.push_str(&routes_output);
+    Ok(file_contents)
+}
+
+// TODO: may make sense to move this to a new() func for RouteModel, or similar...
+pub fn create_route_model(
+    path: String,
+    backup_name: String,
+    method: String,
+    response_schema: String,
+    op: &Operation,
+) -> Result<RouteModel> {
+    let mut params: Vec<Parameter> = vec![];
+    let mut format_path = "".to_string();
+    let mut in_param = false;
+    let mut current_param = "".to_string();
+    for ch in path.chars() {
+        match ch {
+            '{' => {
+                in_param = true;
+                current_param = "".to_string();
+                format_path.push(ch);
+            }
+            '}' => {
+                in_param = false;
+                format_path.push(ch);
+            }
+            _ => {
+                if in_param {
+                    current_param.push(ch);
+                } else {
+                    format_path.push(ch);
+                }
+            }
+        }
+    }
+
+    for param in op.parameters.clone() {
+        if let ReferenceOr::Item(param) = param {
+            params.push(param);
+        }
+    }
+
+    dbg!(&response_schema);
+
+    Ok(RouteModel {
+        path: path.to_string(),
+        backup_name,
+        method,
+        params,
+        response_schema,
+        summary: op.summary.clone().unwrap_or("NO SUMMARY".to_string()),
+        description: op
+            .description
+            .clone()
+            .unwrap_or("NO DESCRIPTION".to_string()),
+    })
+}
+
+pub fn generate_route_model(
+    route: &RouteModel,
+    type_name_replacements: IndexMap<String, String>,
+) -> Result<String> {
+    let mut route_output = String::new();
+
+    let mut path_param_names: Vec<String> = vec![];
+    let mut query_param_names: Vec<String> = vec![];
+    let mut qp_required = IndexMap::<String, bool>::new();
+    let mut param_descriptions = IndexMap::<String, String>::new();
+    let mut header_names: Vec<String> = vec![];
+
+    let mut format_path = "".to_string();
+    let mut in_param = false;
+    let mut current_param = "".to_string();
+    for ch in route.path.chars() {
+        match ch {
+            '{' => {
+                in_param = true;
+                current_param = "".to_string();
+                format_path.push(ch);
+            }
+            '}' => {
+                in_param = false;
+                format_path.push(ch);
+            }
+            _ => {
+                if in_param {
+                    current_param.push(ch);
+                } else {
+                    format_path.push(ch);
+                }
+            }
+        }
+    }
+
+    for param in &route.params {
+        param_descriptions.insert(
+            param.clone().parameter_data().name.clone(),
+            param
+                .clone()
+                .parameter_data()
+                .description
+                .clone()
+                .unwrap_or("XXXXX".to_string()),
+        );
+        match param {
+            openapiv3::Parameter::Query {
+                parameter_data,
+                allow_reserved: _,
+                style: _,
+                allow_empty_value: _,
+            } => {
+                query_param_names.push(parameter_data.name.clone());
+                qp_required.insert(parameter_data.name.clone(), parameter_data.required);
+            }
+            openapiv3::Parameter::Header {
+                parameter_data,
+                style: _,
+            } => {
+                header_names.push(parameter_data.name.clone());
+            }
+            openapiv3::Parameter::Path {
+                parameter_data,
+                style: _,
+            } => {
+                path_param_names.push(parameter_data.name.clone());
+            }
+            openapiv3::Parameter::Cookie {
+                parameter_data: _,
+                style: _,
+            } => {
+                todo!("not implemented")
+            }
+        }
+    }
+
+    let func_name = &route.backup_name;
+
+    let response_type =
+        if let Some(replacement) = type_name_replacements.get(&route.response_schema) {
+            replacement
+        } else {
+            &route.response_schema
+        };
+
+    //     path parameters, such as /users/{id}
+    // query parameters, such as /users?role=admin
+    // header parameters, such as X-MyHeader: Value
+    // cookie parameters, which are passed in the Cookie header, such as Cookie: debug=0; csrftoken=BUSe35dohU3O1MZvDCU
+
+    // lets put the route name here...
+    // make some docs...
+
+    // we want summary and description of a route...
+
+    // TODO: parameter types, docs
+    route_output.push_str(&format!("/// ## {}\n", route.summary));
+    route_output.push_str(&format!(
+        "/// {}\n",
+        route.description.replace("\n", "\n/// ")
+    ));
+    route_output.push_str("#[derive(Default)]\n");
+    route_output.push_str(&format!("pub struct {} {{\n", func_name));
+    if !path_param_names.is_empty() {
+        route_output.push_str(&format!("\t// path params: {:?} \n", path_param_names));
+        for path_param_name in &path_param_names {
+            if let Some(description) = param_descriptions.get(path_param_name)
+                && !description.is_empty()
+            {
+                route_output.push_str(&format!("\t/// {}\n", description));
+            }
+
+            route_output.push_str(&format!(
+                "\tpub {}: String,\n",
+                to_snake_case(&path_param_name)
+            ));
+        }
+    }
+    if !query_param_names.is_empty() {
+        route_output.push_str(&format!("\t// query params: {:?} \n", query_param_names));
+        for query_param_name in &query_param_names {
+            if let Some(description) = param_descriptions.get(query_param_name)
+                && !description.is_empty()
+            {
+                route_output.push_str(&format!("\t/// {}\n", description));
+            }
+
+            if qp_required.get(query_param_name).is_some_and(|req| *req) {
+                route_output.push_str(&format!(
+                    "\tpub {}: String,\n",
+                    to_snake_case(&query_param_name)
+                ));
+            } else {
+                route_output.push_str(&format!(
+                    "\tpub {}: Option<String>,\n",
+                    to_snake_case(&query_param_name)
+                ));
+            }
+        }
+    }
+    if !header_names.is_empty() {
+        route_output.push_str(&format!("\t// headers: {:?} \n", header_names));
+        for header_name in &header_names {
+            route_output.push_str(&format!("\tpub {}: String,\n", to_snake_case(&header_name)));
+        }
+    }
+    route_output.push_str("}\n");
+
+    route_output.push_str(&format!("impl BirdRequest for {} {{\n", func_name));
+    route_output.push_str(&format!("\ttype ResponseType = {};\n", response_type));
+    route_output.push_str(&format!(
+        "\tconst METHOD: Method = Method::{};\n",
+        route.method
+    ));
+
+    // if res type is raw string, we need to decode differently
+    if response_type == "String" {
+        route_output.push_str("\tconst RETURNS_CSV: bool = true;\n");
+    }
+
+    let format_path_args_string = path_param_names
+        .iter()
+        .map(|param| format!("self.{}", to_snake_case(param)))
+        .collect::<Vec<String>>()
+        .join(", ");
+
+    // path()
+    route_output.push_str(&format!("\tfn path(&self) -> String {{\n"));
+    if query_param_names.is_empty() {
+        if format_path_args_string.is_empty() {
+            route_output.push_str(&format!("\t\t\"{}\".to_string()\n", format_path));
+        } else {
+            route_output.push_str(&format!(
+                "\t\tformat!(\"{}\", {})\n",
+                format_path, format_path_args_string
+            ));
+        }
+    } else {
+        if format_path_args_string.is_empty() {
+            route_output.push_str(&format!("\t\tlet path = format!(\"{}\");\n", format_path));
+        } else {
+            route_output.push_str(&format!(
+                "\t\tlet path = format!(\"{}\", {});\n",
+                format_path, format_path_args_string
+            ));
+        }
+        route_output.push_str(&format!(
+            "\t\tlet mut query_params: Vec<String> = vec![];\n"
+        ));
+        for param_name in query_param_names.iter() {
+            if qp_required.get(param_name).is_some_and(|req| *req) {
+                route_output.push_str(&format!(
+                    "\t\tquery_params.push(format!(\"{}={{}}\", self.{}));\n",
+                    param_name,
+                    to_snake_case(param_name)
+                ));
+            } else {
+                route_output.push_str(&format!("\t\tif let Some({}) = &self.{} {{ query_params.push(format!(\"{}={{}}\", {})); }}\n", to_snake_case(param_name), to_snake_case(param_name), param_name, to_snake_case(param_name)));
+            }
+        }
+        route_output.push_str("\t\tlet mut query = query_params.join(\"&\");\n");
+        route_output.push_str("\t\tif !query.is_empty() { query = format!(\"?{}\", query); }\n");
+        route_output.push_str("\t\tformat!(\"{path}{query}\")\n");
+    }
+    route_output.push_str("\t}\n");
+
+    // headers (if any)
+    if !header_names.is_empty() {
+        route_output.push_str("\tfn additional_headers(&self) -> HeaderMap {\n");
+        route_output.push_str("\t\tlet mut map = HeaderMap::new();\n");
+        for header_name in &header_names {
+            route_output.push_str("\t\tif let (Ok(name), Ok(value)) = (\n");
+            route_output.push_str(&format!(
+                "\t\t\tHeaderName::from_bytes(\"{}\".as_bytes()),\n",
+                header_name
+            ));
+            route_output.push_str(&format!(
+                "\t\t\tHeaderValue::from_str(&self.{})\n",
+                to_snake_case(&header_name)
+            ));
+            route_output.push_str("\t\t) {\n");
+            route_output.push_str("\t\t\tmap.insert(name, value);\n");
+            route_output.push_str("\t\t}\n");
+        }
+        route_output.push_str("\t\tmap\n");
+        route_output.push_str("\t}\n");
+    }
+    route_output.push_str("}\n\n");
+    Ok(route_output)
+}
+
 pub fn generate_rust_code(models: &[Model]) -> Result<String> {
     let mut code = create_header();
 
@@ -546,6 +900,161 @@ pub fn generate_rust_code(models: &[Model]) -> Result<String> {
 pub fn generate_lib() -> Result<String> {
     let mut code = create_header();
     code.push_str("pub mod models;\n");
+    code.push_str("pub mod routes;\n");
+    code.push_str("pub mod tests;\n");
+
+    Ok(code)
+}
+
+pub fn generate_tests(
+    _models: &[ModelType],
+    _requests: &[RequestModel],
+    _responses: &[ResponseModel],
+    routes: &[RouteModel],
+    _models_to_skip: &[String],
+    type_name_replacements: &IndexMap<String, String>,
+) -> Result<String> {
+    let mut code = "".to_string();
+
+    code.push_str("#[cfg(test)]\n");
+    code.push_str("mod tests {\n");
+    code.push_str("use log::info;\n");
+    code.push_str("use crate::generated::routes::*;\n");
+    code.push_str("use crate::bird_client::*;\n\n");
+
+    for route in routes {
+        let test_output = generate_test(route, type_name_replacements)?;
+        code.push_str(&test_output);
+    }
+
+    code.push_str("}\n");
+    Ok(code.to_string())
+}
+
+pub fn generate_test(
+    route: &RouteModel,
+    type_name_replacements: &IndexMap<String, String>,
+) -> Result<String> {
+    let mut test_output = "".to_string();
+
+    test_output.push_str("#[tokio::test]\n");
+    test_output.push_str(&format!(
+        "async fn test_{}() {{\n",
+        to_snake_case(&route.backup_name)
+    ));
+    test_output.push_str("\tlet client = BirdClient::new();\n");
+
+    let param_values: IndexMap<&str, &str> = IndexMap::from([
+        ("region_code", "CA-BC"),
+        ("parent_region_code", "CA"),
+        ("lat", "49.2827"),
+        ("lng", "-123.1207"),
+        ("species_code", "baleag"),
+        ("y", "2025"),
+        ("m", "10"),
+        ("d", "31"),
+        ("sub_id", "S272331312"),
+        ("region_type", "subnational1"),
+        ("species_grouping", "merlin"),
+        ("accept_language", "en"),
+        ("loc_id", "L99381"),
+        // my custom ones:
+        ("max_results", "50"),
+    ]);
+
+    // request model
+    let func_name = &route.backup_name;
+    test_output.push_str(&format!("\tlet req = {} {{\n", func_name));
+    for param in &route.params {
+        match param.clone() {
+            Parameter::Query {
+                parameter_data,
+                allow_reserved,
+                style,
+                allow_empty_value,
+            } => {
+                if !parameter_data.required {
+                    continue;
+                }
+            }
+            Parameter::Header {
+                parameter_data,
+                style,
+            } => {
+                //todo
+            }
+            Parameter::Path {
+                parameter_data,
+                style,
+            } => {
+                //todo
+            }
+            Parameter::Cookie {
+                parameter_data,
+                style,
+            } => {
+                //todo
+                continue;
+            }
+        }
+
+        let rust_name = to_snake_case(&param.clone().parameter_data().name);
+        test_output.push_str(&format!(
+            "\t\t{}: \"{}\".to_string(),\n",
+            rust_name,
+            param_values.get(rust_name.as_str()).unwrap()
+        ));
+    }
+    test_output.push_str("\t\t..Default::default()\n");
+    test_output.push_str(&format!("\t}};\n"));
+
+    test_output.push_str("\tmatch client.do_request(&req).await {\n");
+    test_output.push_str("\t\tOk(_) => { info!(\"✅ {}\", req.path()); },\n");
+    test_output.push_str("\t\tErr(e) => { panic!(\"❌ {}: {}\", req.path(), e); }\n");
+    test_output.push_str(&format!("\t}};\n"));
+
+    test_output.push_str("}\n\n");
+    Ok(test_output)
+}
+
+pub fn generate_readme(
+    _models: &[ModelType],
+    _requests: &[RequestModel],
+    _responses: &[ResponseModel],
+    routes: &[RouteModel],
+    models_to_skip: &[String],
+    type_name_replacements: &IndexMap<String, String>,
+) -> Result<String> {
+    let mut code = "```\n".to_string();
+    code.push_str(&create_header());
+    code.push_str("```\n");
+
+    code.push_str("# Routes\n");
+    code.push_str("| route | response type |\n");
+    code.push_str("| --- | --- |\n");
+    for route in routes {
+        let replacement_schema = type_name_replacements
+            .get(&route.response_schema)
+            .map_or("", |v| v);
+        code.push_str(&format!(
+            "| `[{}] {}` | `{}` |\n",
+            route.method, route.path, &replacement_schema
+        ));
+    }
+
+    code.push_str("# Replacements and Omissions\n");
+    code.push_str("*Route list above is after these skips and replacements*\n");
+    code.push_str("## Models to skip during generation\n");
+    for model in models_to_skip {
+        code.push_str(&format!("- `{}`\n", model));
+    }
+    code.push_str("## Models type replacements\n");
+    code.push_str("| old | -> | new |\n");
+    code.push_str("| --- | --- | --- |\n");
+
+    for (from, to) in type_name_replacements {
+        code.push_str(&format!("| `{}` | -> | `{}` |\n", from, to));
+    }
 
     Ok(code)
 }
