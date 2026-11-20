@@ -102,6 +102,8 @@ pub struct RouteModel {
     pub method: String,
     /// all params: path, query, header, and cookie
     pub params: Vec<openapiv3::Parameter>,
+    pub summary: String,
+    pub description: String,
     pub response_schema: String,
 }
 

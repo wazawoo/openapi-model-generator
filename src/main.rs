@@ -1,6 +1,6 @@
 use clap::Parser;
 use indexmap::IndexMap;
-use openapi_model_generator::{cli::Args, generator, parser, Error, Result};
+use openapi_model_generator::{Error, Result, cli::Args, generator, parser};
 use openapiv3::OpenAPI;
 use std::fs;
 use std::io;
@@ -72,16 +72,16 @@ pub fn get_models_to_skip(csv_path: &PathBuf) -> Result<Vec<String>> {
                 println!("{:?}", record);
                 let row_size = record.len();
                 if row_size != expected_column_count {
-                    return Err(Error::CsvOther(format!("Row {i} had {row_size} columns (expected {expected_column_count})")));
+                    return Err(Error::CsvOther(format!(
+                        "Row {i} had {row_size} columns (expected {expected_column_count})"
+                    )));
                 }
 
                 if let Some(model) = record.get(0) {
                     models_to_skip.push(model.into());
                 }
-            },
-            Err(e) => {
-                return Err(Error::Csv(e))
-            },
+            }
+            Err(e) => return Err(Error::Csv(e)),
         }
     }
     Ok(models_to_skip)
@@ -103,16 +103,18 @@ pub fn get_model_name_replacements(csv_path: &PathBuf) -> Result<IndexMap<String
                 println!("{:?}", record);
                 let row_size = record.len();
                 if row_size != expected_column_count {
-                    return Err(Error::CsvOther(format!("Row {i} had {row_size} columns (expected {expected_column_count})")));
+                    return Err(Error::CsvOther(format!(
+                        "Row {i} had {row_size} columns (expected {expected_column_count})"
+                    )));
                 }
 
-                if let Some(model) = record.get(0) && let Some(replacement) = record.get(1) {
+                if let Some(model) = record.get(0)
+                    && let Some(replacement) = record.get(1)
+                {
                     model_name_replacements.insert(model.into(), replacement.into());
                 }
-            },
-            Err(e) => {
-                return Err(Error::Csv(e))
-            },
+            }
+            Err(e) => return Err(Error::Csv(e)),
         }
     }
     Ok(model_name_replacements)
@@ -132,12 +134,16 @@ fn main() -> Result<()> {
     }
 
     let mut models_to_skip: Vec<String> = vec![];
-    if let Some(skip_path) = args.skip_models_csv && let Ok(to_skip) = get_models_to_skip(&skip_path) {
+    if let Some(skip_path) = args.skip_models_csv
+        && let Ok(to_skip) = get_models_to_skip(&skip_path)
+    {
         models_to_skip = to_skip;
     }
 
     let mut type_name_replacements: IndexMap<String, String> = IndexMap::new();
-    if let Some(replace_path) = args.replace_models_csv && let Ok(replacements) = get_model_name_replacements(&replace_path) {
+    if let Some(replace_path) = args.replace_models_csv
+        && let Ok(replacements) = get_model_name_replacements(&replace_path)
+    {
         type_name_replacements = replacements;
     }
 
@@ -151,7 +157,13 @@ fn main() -> Result<()> {
 
     let (models, requests, responses, routes) = parser::parse_openapi(&openapi)?;
 
-    let rust_code = generator::generate_models(&models, &requests, &responses, &models_to_skip, &type_name_replacements)?;
+    let rust_code = generator::generate_models(
+        &models,
+        &requests,
+        &responses,
+        &models_to_skip,
+        &type_name_replacements,
+    )?;
     let output_models_path = args.output.join("models.rs");
     fs::write(&output_models_path, rust_code.trim())?;
 
@@ -164,11 +176,25 @@ fn main() -> Result<()> {
     fs::write(&output_lib_path, rust_lib.trim())?;
 
     // let rust_lib = generator::g()?;
-    let tests = generator::generate_tests(&models, &requests, &responses, &routes, &models_to_skip, &type_name_replacements)?;
+    let tests = generator::generate_tests(
+        &models,
+        &requests,
+        &responses,
+        &routes,
+        &models_to_skip,
+        &type_name_replacements,
+    )?;
     let output_lib_path = args.output.join("tests.rs");
     fs::write(&output_lib_path, tests.trim())?;
 
-    let readme = generator::generate_readme(&models, &requests, &responses, &routes, &models_to_skip, &type_name_replacements)?;
+    let readme = generator::generate_readme(
+        &models,
+        &requests,
+        &responses,
+        &routes,
+        &models_to_skip,
+        &type_name_replacements,
+    )?;
     let output_lib_path = args.output.join("README.md");
     fs::write(&output_lib_path, readme.trim())?;
 
