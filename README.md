@@ -1,3 +1,8 @@
+# THIS IS A FORK
+> [!IMPORTANT] 
+> This is a heavily modified fork of the original repo, focused on compatibility with wazawoo's usecases. It is not the version that's released on crates.io. I've included the original README contents below (at the time of forking).
+
+---
 # OpenAPI Model Generator
 
 A Rust library and CLI tool for generating Rust models from OpenAPI specifications. This utility automatically creates Rust structures based on schemas from OpenAPI (Swagger) documentation.
